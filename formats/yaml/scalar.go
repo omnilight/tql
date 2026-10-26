@@ -12,7 +12,7 @@ var intRE = regexp.MustCompile(`^[+-]?[0-9]+$`)
 var floatRE = regexp.MustCompile(`^[+-]?([0-9]+\.[0-9]*|\.[0-9]+|[0-9]+)([eE][+-]?[0-9]+)?$`)
 
 func scalar(s string, start, end int) (*syntax.Node, error) {
-	n := &syntax.Node{Kind: syntax.String, Value: s, Start: start, End: end, Style: "plain"}
+	n := &syntax.Node{Kind: syntax.String, Value: s, Start: start, End: end, Style: "plain", Meta: map[string]any{"scalarValue": s}}
 	switch s {
 	case "~", "null", "Null", "NULL":
 		n.Kind = syntax.Null
@@ -25,29 +25,22 @@ func scalar(s string, start, end int) (*syntax.Node, error) {
 		n.Value = false
 	default:
 		if s == ".nan" || s == ".NaN" || s == ".NAN" || strings.EqualFold(strings.TrimPrefix(strings.TrimPrefix(s, "+"), "-"), ".inf") {
-			return nil, errAt(start, "non-finite numbers cannot be represented by TQL")
+			n.Kind = syntax.NumberKind
+			n.Value = syntax.Number(s)
+			return n, nil
 		}
-		sign := ""
-		unsigned := s
-		if strings.HasPrefix(s, "+") || strings.HasPrefix(s, "-") {
-			sign = s[:1]
-			unsigned = s[1:]
-		}
-		if strings.HasPrefix(unsigned, "0x") || strings.HasPrefix(unsigned, "0o") {
+		if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0o") {
 			base := 16
-			if unsigned[1] == 'o' {
+			if s[1] == 'o' {
 				base = 8
 			}
-			digits := unsigned[2:]
+			digits := s[2:]
 			allowed := "01234567"
 			if base == 16 {
 				allowed = "0123456789abcdefABCDEF"
 			}
 			if digits != "" && strings.Trim(digits, allowed) == "" {
 				z, _ := new(big.Int).SetString(digits, base)
-				if sign == "-" {
-					z.Neg(z)
-				}
 				n.Kind = syntax.NumberKind
 				n.Value = syntax.Number(z.String())
 			}
@@ -96,7 +89,7 @@ func (p *parser) blockScalar(start, end, indent int) (*syntax.Node, error) {
 		}
 		head = head[:i]
 	}
-	head = strings.TrimSpace(head)
+	head = strings.Trim(head, " \t")
 	style := head[0]
 	chomp := byte(0)
 	explicit := 0
@@ -116,10 +109,10 @@ func (p *parser) blockScalar(start, end, indent int) (*syntax.Node, error) {
 			return nil, errAt(start+i, "invalid block scalar header")
 		}
 	}
-	contentIndent := indent + explicit
+	contentIndent := max(indent, 0) + explicit
 	j := p.i
 	if explicit == 0 {
-		for j < len(p.lines) && strings.TrimSpace(p.lines[j].text) == "" {
+		for j < len(p.lines) && strings.Trim(p.lines[j].text, " ") == "" {
 			j++
 		}
 		if j < len(p.lines) && p.lines[j].indent > indent {
@@ -142,7 +135,10 @@ func (p *parser) blockScalar(start, end, indent int) (*syntax.Node, error) {
 	leading := true
 	for p.i < len(p.lines) {
 		l := p.lines[p.i]
-		blank := strings.TrimSpace(l.text) == ""
+		if marker(l, "---") || marker(l, "...") {
+			break
+		}
+		blank := strings.Trim(l.text, " ") == ""
 		if explicit == 0 && leading && blank && l.indent > contentIndent {
 			return nil, errAt(l.start, "leading empty block scalar line is over-indented")
 		}
@@ -150,7 +146,10 @@ func (p *parser) blockScalar(start, end, indent int) (*syntax.Node, error) {
 			leading = false
 		}
 		if !blank && l.indent < contentIndent {
-			if l.indent > indent {
+			if strings.HasPrefix(l.text, "\t") {
+				return nil, errAt(l.start+l.indent, "tab indentation is not allowed")
+			}
+			if l.indent > indent && !strings.HasPrefix(l.text, "#") {
 				return nil, errAt(l.start, "invalid block scalar indentation")
 			}
 			break
@@ -160,9 +159,11 @@ func (p *parser) blockScalar(start, end, indent int) (*syntax.Node, error) {
 			text = string(p.src[l.start+contentIndent : l.end])
 		}
 		rows = append(rows, text)
-		terminated = append(terminated, l.next > l.end)
+		// A final all-space line still contributes an empty line at EOF.
+		lineTerminated := l.next > l.end || blank
+		terminated = append(terminated, lineTerminated)
 		if text != "" {
-			contentTerminated = l.next > l.end
+			contentTerminated = lineTerminated
 		}
 		last = l.next
 		p.i++
@@ -171,14 +172,14 @@ func (p *parser) blockScalar(start, end, indent int) (*syntax.Node, error) {
 	for i, s := range rows {
 		b.WriteString(s)
 		if i+1 < len(rows) {
-			if style == '>' && s != "" && rows[i+1] != "" && !strings.HasPrefix(s, " ") && !strings.HasPrefix(rows[i+1], " ") {
+			if style == '>' && s != "" && rows[i+1] != "" && !moreIndented(s) && !moreIndented(rows[i+1]) {
 				b.WriteByte(' ')
-			} else if style == '>' && s != "" && rows[i+1] == "" && !strings.HasPrefix(s, " ") {
+			} else if style == '>' && s != "" && rows[i+1] == "" && !moreIndented(s) {
 				j := i + 1
 				for j < len(rows) && rows[j] == "" {
 					j++
 				}
-				if j == len(rows) || strings.HasPrefix(rows[j], " ") {
+				if j == len(rows) || moreIndented(rows[j]) {
 					b.WriteByte('\n')
 				}
 			} else {
@@ -197,5 +198,9 @@ func (p *parser) blockScalar(start, end, indent int) (*syntax.Node, error) {
 			value += "\n"
 		}
 	}
-	return &syntax.Node{Kind: syntax.String, Value: value, Start: start, End: last, Style: "block-scalar", Meta: map[string]any{"indent": indent, "headerEnd": end}}, nil
+	return &syntax.Node{Kind: syntax.String, Value: value, Start: start, End: last, Style: "block-scalar", Meta: map[string]any{"indent": indent, "headerEnd": end, "scalarValue": value}}, nil
+}
+
+func moreIndented(s string) bool {
+	return strings.HasPrefix(s, " ") || strings.HasPrefix(s, "\t")
 }

@@ -44,7 +44,10 @@ go test ./internal/query -run '^$' -fuzz FuzzParse -fuzztime 10s
 
 Keep discovered failures as regression tests. The optional
 [TOML differential harness](formats/toml/README.md#differential-testing) compares
-the parser with Python's `tomllib`. For performance work, use the workloads and
+the parser with Python's `tomllib`. The optional [YAML suite harness](formats/yaml/README.md#conformance-checks)
+compares graph events and values with an external official data export:
+`make yaml-suite YAML_TEST_SUITE=/path/to/yaml-test-suite-data`.
+For performance work, use the workloads and
 measurement guidance in [performance](docs/performance.md).
 
 Document language or API changes with runnable examples. Format-specific behavior

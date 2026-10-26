@@ -99,7 +99,7 @@ func TestAnchorForms(t *testing.T) {
 	}
 }
 func TestAliasFailures(t *testing.T) {
-	for _, src := range []string{"a: *unknown", "a: &x [*x]", "a: *later\nb: &later 1", "a: &x 1\nb: &x 2", "a: & 1"} {
+	for _, src := range []string{"a: *unknown", "a: &x [*x]", "a: *later\nb: &later 1", "a: & 1"} {
 		if _, e := (Format{}).Parse([]byte(src)); e == nil {
 			t.Fatalf("accepted %q", src)
 		}

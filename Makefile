@@ -1,5 +1,5 @@
-.PHONY: build test race vet fmt fmt-check check lint workflow-lint vuln tools fuzz oracle release clean \
-	fuzz-json fuzz-toml fuzz-yaml fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote
+.PHONY: build test race vet fmt fmt-check check lint workflow-lint vuln tools fuzz oracle yaml-suite release clean \
+	fuzz-json fuzz-toml fuzz-yaml fuzz-yaml-graph fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote
 
 VERSION ?= dev
 FUZZTIME ?= 10s
@@ -48,8 +48,11 @@ fuzz-json:
 fuzz-toml:
 	go test ./formats/toml -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
 
-fuzz-yaml:
+fuzz-yaml: fuzz-yaml-graph
 	go test ./formats/yaml -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
+fuzz-yaml-graph:
+	go test ./formats/yaml -run '^$$' -fuzz '^FuzzGraph$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
 
 fuzz-query:
 	go test ./internal/query -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
@@ -71,6 +74,10 @@ fuzz-quote:
 
 oracle:
 	python3 formats/toml/testdata/oracle/compare.py
+
+yaml-suite:
+	@test -n "$(YAML_TEST_SUITE)" || { echo "Set YAML_TEST_SUITE to an extracted yaml-test-suite data export."; exit 1; }
+	python3 formats/yaml/testdata/suite/compare.py --suite "$(YAML_TEST_SUITE)"
 
 release:
 	go run ./scripts/release -version $(VERSION) -output dist

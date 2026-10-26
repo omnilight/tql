@@ -151,26 +151,21 @@ func allHeaders(n *syntax.Node, positions *[]int) {
 		allHeaders(v, positions)
 	}
 }
-func insertion(src []byte, root, parent *syntax.Node, key string, value any) (syntax.Edit, error) {
+func insertion(src []byte, root, parent *syntax.Node, key string, value any) ([]syntax.Edit, error) {
 	owner, path, err := context(parent)
 	if err != nil {
-		return syntax.Edit{}, err
+		return nil, err
 	}
 	style := localInsertionStyle(src, parent)
 	template := insertionTemplate(parent, valueKind(value))
-	text, err := renderInsertion(src, value, template, style, 0, owner.Style == "inline")
+	text, err := renderInsertion(src, value, template, style, 0)
 	if err != nil {
-		return syntax.Edit{}, err
+		return nil, err
 	}
 	path = append(path, key)
 	assignment := styledAssignment(styledPath(path, style), text, style)
 	if owner.Style == "inline" {
-		if len(owner.Entries) == 0 {
-			gap := string(src[owner.Start+1 : owner.End-1])
-			return edit(owner.Start+1, owner.Start+1, gap+assignment), nil
-		}
-		last := maxSyntaxEnd(owner)
-		return edit(last, last, style.commaBefore+","+style.separator+assignment), nil
+		return insertInlineAssignment(src, owner, assignment, style), nil
 	}
 	start := 0
 	if x, ok := owner.Meta["headerEnd"].(int); ok {
@@ -192,21 +187,7 @@ func insertion(src []byte, root, parent *syntax.Node, key string, value any) (sy
 	if pos == len(src) && pos > 0 && src[pos-1] != '\n' {
 		suffix = ""
 	}
-	return edit(pos, pos, prefix+style.indent+assignment+suffix), nil
-}
-func maxSyntaxEnd(n *syntax.Node) int {
-	max := n.Start + 1
-	for _, e := range n.Entries {
-		if e.End > max {
-			max = e.End
-		}
-		if e.Start < 0 {
-			if x := maxSyntaxEnd(e.Value); x > max {
-				max = x
-			}
-		}
-	}
-	return max
+	return []syntax.Edit{edit(pos, pos, prefix+style.indent+assignment+suffix)}, nil
 }
 
 // Insert plans a missing object member or an array append.
@@ -276,11 +257,7 @@ func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value an
 	if parent.Get(key) != nil {
 		return nil, fmt.Errorf("key %q already exists", key)
 	}
-	e, err := insertion(src, root, parent, key, value)
-	if err != nil {
-		return nil, err
-	}
-	return []syntax.Edit{e}, nil
+	return insertion(src, root, parent, key, value)
 }
 func absolutePath(n *syntax.Node) ([]string, error) {
 	var keys []string
@@ -434,7 +411,7 @@ func (f Format) Replace(src []byte, root, target *syntax.Node, value any) ([]syn
 	if err != nil {
 		return nil, err
 	}
-	return append([]syntax.Edit{ins}, ownedEdits(target)...), nil
+	return append(ins, ownedEdits(target)...), nil
 }
 func comma(src []byte, start, end int) int {
 	comment := false
@@ -554,6 +531,8 @@ func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, er
 				if c >= 0 {
 					edits = append(edits, edit(c, c+1, ""))
 				}
+			} else if c := comma(src, entries[last].End, inline.End-1); c >= 0 {
+				edits = append(edits, edit(c, c+1, ""))
 			} else if first > 0 {
 				c := comma(src, entries[first-1].End, entries[first].Start)
 				if c >= 0 {

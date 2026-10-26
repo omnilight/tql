@@ -23,6 +23,22 @@ func (Format) Replace(src []byte, root, target *syntax.Node, value any) (result 
 	if e != nil {
 		return nil, e
 	}
+	if target.Meta["explicitMissingValue"] == true {
+		indent := target.Meta["indent"].(int)
+		nl := newline(src)
+		prefix, suffix := "", ""
+		if target.Start > 0 && src[target.Start-1] != '\n' && src[target.Start-1] != '\r' {
+			prefix = nl
+		}
+		if target.Start < len(src) || target.Start > 0 && (src[target.Start-1] == '\n' || src[target.Start-1] == '\r') {
+			suffix = nl
+		}
+		text = prefix + strings.Repeat(" ", indent) + ": " + text + suffix
+		return []syntax.Edit{{Start: target.Start, End: target.End, Text: []byte(text)}}, nil
+	}
+	if target.Meta["flowMissingColon"] == true {
+		return []syntax.Edit{{Start: target.Start, End: target.End, Text: []byte(": " + text)}}, nil
+	}
 	if target.Style == "multiline-plain" {
 		spans := target.Meta["segments"].([]segment)
 		edits := make([]syntax.Edit, 0, len(spans))
@@ -141,6 +157,11 @@ func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value an
 	if parent.Kind == syntax.Array && key != "" && key != "-" && key != strconv.Itoa(len(parent.Items)) {
 		return nil, fmt.Errorf("yaml: array insertion only supports append")
 	}
+	if parent.Style == "flow-pair" {
+		object := parent.Interface().(map[string]any)
+		object[key] = value
+		return (Format{}).Replace(src, root, parent, object)
+	}
 	style := styleAt(src, parent)
 	template := insertionTemplate(parent, value)
 	if parent.Style == "flow" {
@@ -239,6 +260,9 @@ func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, er
 				break
 			}
 		}
+	}
+	if parent.Style == "flow-pair" {
+		return []syntax.Edit{{Start: parent.Start, End: parent.End, Text: []byte("{}")}}, nil
 	}
 	if parent.Style == "flow" {
 		edits := []syntax.Edit{{Start: start, End: end}}

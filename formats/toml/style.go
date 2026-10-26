@@ -253,7 +253,7 @@ func containerWhitespace(src []byte, n *syntax.Node, s insertionStyle) insertion
 	return s
 }
 
-func renderInsertion(src []byte, value any, template *syntax.Node, s insertionStyle, depth int, inline bool) (string, error) {
+func renderInsertion(src []byte, value any, template *syntax.Node, s insertionStyle, depth int) (string, error) {
 	if depth > 256 {
 		return "", fmt.Errorf("TOML value nesting exceeds 256 levels")
 	}
@@ -273,7 +273,7 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 		if template != nil && template.Kind == syntax.Array && len(template.Items) > 0 {
 			exemplar = template.Items[len(template.Items)-1]
 		}
-		multi := !inline && template != nil && template.Start >= 0 && strings.Contains(string(src[template.Start:template.End]), "\n")
+		multi := template != nil && template.Start >= 0 && strings.Contains(string(src[template.Start:template.End]), "\n")
 		itemIndent := s.indent + s.unit
 		if multi && len(template.Items) > 0 {
 			base := sourceIndent(src, template.Start)
@@ -289,7 +289,7 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 			var err error
 			childStyle := s
 			childStyle.indent = itemIndent
-			parts[i], err = renderInsertion(src, x, child, childStyle, depth+1, inline)
+			parts[i], err = renderInsertion(src, x, child, childStyle, depth+1)
 			if err != nil {
 				return "", err
 			}
@@ -332,7 +332,7 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 					}
 				}
 			}
-			text, err := renderInsertion(src, v[k], child, s, depth+1, true)
+			text, err := renderInsertion(src, v[k], child, s, depth+1)
 			if err != nil {
 				return "", err
 			}
@@ -353,7 +353,7 @@ func insertArrayStyled(src []byte, parent *syntax.Node, value any) ([]syntax.Edi
 	open, close := parent.Start+1, parent.End-1
 	multiline := strings.Contains(string(src[open:close]), "\n")
 	if !multiline {
-		text, err := renderInsertion(src, value, template, s, 0, true)
+		text, err := renderInsertion(src, value, template, s, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -387,7 +387,7 @@ func insertArrayStyled(src []byte, parent *syntax.Node, value any) ([]syntax.Edi
 		}
 	}
 	s.indent = indent
-	text, err := renderInsertion(src, value, template, s, 0, enclosingInline(parent) != nil)
+	text, err := renderInsertion(src, value, template, s, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -417,6 +417,64 @@ func insertArrayStyled(src []byte, parent *syntax.Node, value any) ([]syntax.Edi
 	return []syntax.Edit{edit(last.End, last.End, s.commaBefore+","+s.nl+indent+text)}, nil
 }
 
+func insertInlineAssignment(src []byte, owner *syntax.Node, assignment string, s insertionStyle) []syntax.Edit {
+	open, close := owner.Start+1, owner.End-1
+	entries := inlineEntries(owner)
+	if !strings.Contains(string(src[open:close]), "\n") {
+		if len(entries) == 0 {
+			gap := string(src[open:close])
+			return []syntax.Edit{edit(open, open, gap+assignment)}
+		}
+		last := entries[len(entries)-1]
+		if c := comma(src, last.End, close); c >= 0 {
+			return []syntax.Edit{edit(c+1, c+1, s.separator+assignment+s.commaBefore+",")}
+		}
+		return []syntax.Edit{edit(last.End, last.End, s.commaBefore+","+s.separator+assignment)}
+	}
+	lineStart := close
+	for lineStart > open && src[lineStart-1] != '\n' {
+		lineStart--
+	}
+	closingLine := horizontal(string(src[lineStart:close]))
+	indent := s.indent + s.unit
+	if closingLine {
+		indent = string(src[lineStart:close]) + s.unit
+	}
+	if len(entries) > 0 {
+		last := entries[len(entries)-1]
+		start := last.Start
+		for start > 0 && src[start-1] != '\n' {
+			start--
+		}
+		if horizontal(string(src[start:last.Start])) {
+			indent = string(src[start:last.Start])
+		}
+	}
+	if len(entries) == 0 {
+		if closingLine {
+			return []syntax.Edit{edit(lineStart, lineStart, indent+assignment+s.nl)}
+		}
+		return []syntax.Edit{edit(close, close, s.nl+indent+assignment+s.nl+s.indent)}
+	}
+	last := entries[len(entries)-1]
+	c := comma(src, last.End, close)
+	suffix := ""
+	if c >= 0 {
+		suffix = s.commaBefore + ","
+	}
+	if closingLine && lineStart > last.End {
+		edits := []syntax.Edit{edit(lineStart, lineStart, indent+assignment+suffix+s.nl)}
+		if c < 0 {
+			edits = append(edits, edit(last.End, last.End, s.commaBefore+","))
+		}
+		return edits
+	}
+	if c >= 0 {
+		return []syntax.Edit{edit(c+1, c+1, s.nl+indent+assignment+s.commaBefore+",")}
+	}
+	return []syntax.Edit{edit(last.End, last.End, s.commaBefore+","+s.nl+indent+assignment)}
+}
+
 func renderTableInsertion(src []byte, m map[string]any, template *syntax.Node, s insertionStyle) (string, error) {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -439,7 +497,7 @@ func renderTableInsertion(src []byte, m map[string]any, template *syntax.Node, s
 				}
 			}
 		}
-		text, err := renderInsertion(src, m[k], child, s, 0, false)
+		text, err := renderInsertion(src, m[k], child, s, 0)
 		if err != nil {
 			return "", err
 		}

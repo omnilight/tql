@@ -178,8 +178,8 @@ be used directly or registered in an isolated registry. See the
 | Format | Support |
 | --- | --- |
 | JSON | RFC 8259, exact numbers, Unicode, and any root value. Duplicate keys and invalid surrogate sequences are rejected. |
-| TOML | TOML 1.0, including dotted keys, tables, arrays of tables, inline tables, multiline strings, dates, and numbers. |
-| YAML | A configuration-oriented YAML 1.2 profile. See the [supported YAML features and limits](formats/yaml/README.md); full YAML is not implemented. |
+| TOML | TOML 1.1, including dotted keys, tables, arrays of tables, multiline inline tables, strings, dates, and numbers. |
+| YAML | YAML 1.2 syntax graphs and document streams, with queries and source-preserving edits for representable value trees. See [YAML APIs and limits](formats/yaml/README.md). |
 
 Each format has a source-aware parser written in Go. Unsupported syntax or an
 edit that the format cannot represent returns an error. See

@@ -25,17 +25,19 @@ evidence, they use compact JSON. Deleting the root is an error.
 
 ## TOML
 
-The parser targets [TOML 1.0](https://toml.io/en/v1.0.0). It supports implicit and
+The parser targets [TOML 1.1](https://toml.io/en/v1.1.0). It supports implicit and
 explicit tables, quoted and dotted keys, inline tables, arrays of tables, mixed and
 multiline arrays, all four string forms, Unicode escapes, integer bases, floats,
-dates and times, `inf`, and `nan`.
+dates and times, `inf`, and `nan`. Inline tables may span lines, contain comments,
+and end with a trailing comma. Strings support `\e` and `\xHH` escapes; times may
+omit seconds.
 
 Integers are limited to signed 64-bit values; float overflow is rejected. Decimal
 float spelling is retained for calculations rather than rounded to `float64`.
 Dates are validated, but leap seconds are unsupported. Duplicate keys and
 conflicting table definitions are errors. Value nesting and key paths are limited
 to 256 levels. The root is always an object, and `null` is not representable at any
-level. TOML 1.1 features are outside the target specification.
+level. Date/time values retain their source spelling, including omitted seconds.
 
 Inserting into a root or header table leaves unrelated sections untouched. Dotted
 keys retain their individual source ranges. Deleting the last field retains an
@@ -53,23 +55,34 @@ independent differential test.
 
 ## YAML
 
-The parser targets a configuration-oriented subset of
-[YAML 1.2.2](https://yaml.org/spec/1.2.2/). It supports block and flow collections,
+The parser reads [YAML 1.2.2](https://yaml.org/spec/1.2.2/) syntax. The public
+`yaml.ParseStream` API preserves document streams, typed or complex mapping keys,
+custom tags, anchors, and alias edges in a source-aware graph. It copies its input
+and returns no partial stream on error.
+
+The TQL query backend projects one document into its value-tree model. It supports
+block and flow collections,
 compact collections, comments, UTF-8 with an optional BOM, multiple line-ending
 styles, core scalar resolution, quoted and plain strings, and literal/folded block
 scalars with indentation and chomping indicators. Plain `yes`, `on`, and dates
 remain strings, following YAML 1.2 rather than YAML 1.1 implicit typing.
 
-Anchors and backward aliases resolve into a value tree. Editing inside an alias
+For queries, anchors and backward aliases resolve into a value tree. Reusing an
+anchor name binds subsequent aliases to the new definition; earlier aliases retain
+their original target. Editing inside an alias
 materializes only that alias expression and preserves the anchor definition.
 Editing an anchor that would change unselected aliases is rejected by the engine's
-full-tree verification and rolled back. Recursive aliases, forward aliases,
-duplicate anchor names, and excessive expansion are rejected.
+full-tree verification and rolled back. Recursive aliases are retained by the graph
+API but rejected by the query projection. Unknown or forward aliases and excessive
+query-time alias expansion are rejected.
 
-This is not a complete YAML implementation. Complex keys, custom tags and schemas,
-merge keys, and multiple-document streams are unsupported. See the
-[YAML configuration profile](../formats/yaml/README.md) for the full supported and
-rejected feature list, native tags, size limits, and alias rules.
+Query values use string-keyed objects. Complex or empty null keys, custom tags,
+merge keys, non-finite numbers, and multiple documents cannot be projected without
+losing YAML information, so queries return explicit errors for these inputs. The
+graph API retains their syntax and metadata instead. Plain primitive key spelling
+remains the query key; projected key collisions are errors. See the
+[YAML APIs and limits](../formats/yaml/README.md) for graph traversal, native tags,
+size limits, and alias rules.
 
 Inserted keys, strings, and collections follow nearby quoting, indentation, and
 block or flow layout where possible. Strings that could resolve as another type
