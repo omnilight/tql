@@ -75,3 +75,18 @@ func TestPlainScalarCannotContinueAfterComment(t *testing.T) {
 		parse(t, source)
 	}
 }
+
+func TestCommentsMayHaveTabSeparation(t *testing.T) {
+	for _, source := range []string{"true\n\t# keep", "true\n \t # keep\n", "\t# heading\ntrue\n", " \t # heading\ntrue\n"} {
+		if got := parse(t, source).Interface(); got != true {
+			t.Errorf("%q resolved to %#v", source, got)
+		}
+	}
+	source := "0\n0\t# keep"
+	root := parse(t, source)
+	if out := replace(t, source, root, true); out != "true\n\t# keep" {
+		t.Fatalf("comment formatting changed: %q", out)
+	} else if got := parse(t, out).Interface(); got != true {
+		t.Fatalf("replacement resolved to %#v", got)
+	}
+}

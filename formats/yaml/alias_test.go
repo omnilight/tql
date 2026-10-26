@@ -105,3 +105,26 @@ func TestAliasFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceEmptyRootWithProperties(t *testing.T) {
+	for _, tc := range []struct{ source, want string }{
+		{" &0 ", " &0 true"},
+		{" &a", " &a true"},
+		{" &a # keep", " &a true # keep"},
+		{"  &a\n", "  &a true\n"},
+		{" !!str ", " true"},
+		{" !!str &a ", " &a true"},
+		{" &a !!str ", " &a  true"},
+	} {
+		t.Run(tc.source, func(t *testing.T) {
+			root := parse(t, tc.source)
+			out := replace(t, tc.source, root, true)
+			if out != tc.want {
+				t.Fatalf("got %q; want %q", out, tc.want)
+			}
+			if value := parse(t, out).Interface(); value != true {
+				t.Fatalf("replacement resolved to %#v", value)
+			}
+		})
+	}
+}

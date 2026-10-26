@@ -94,5 +94,22 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.13'
-      - run: make fuzz FUZZTIME=10s
+      - name: Fuzz JSON parser
+        run: make fuzz-json FUZZTIME=10s
+      - name: Fuzz TOML parser
+        run: make fuzz-toml FUZZTIME=10s
+      - name: Fuzz YAML parser
+        run: make fuzz-yaml FUZZTIME=10s
+      - name: Fuzz query parser
+        run: make fuzz-query FUZZTIME=10s
+      - name: Fuzz script execution
+        run: make fuzz-exec FUZZTIME=10s
+      - name: Fuzz styled insertion
+        run: make fuzz-insertion FUZZTIME=10s
+      - name: Fuzz YAML edits
+        run: make fuzz-yaml-edits FUZZTIME=10s
+      - name: Fuzz YAML aliases
+        run: make fuzz-yaml-aliases FUZZTIME=10s
+      - name: Fuzz string quoting
+        run: make fuzz-quote FUZZTIME=10s
       - run: make oracle

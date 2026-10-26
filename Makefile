@@ -1,7 +1,9 @@
-.PHONY: build test race vet fmt fmt-check check lint workflow-lint vuln tools fuzz oracle release clean
+.PHONY: build test race vet fmt fmt-check check lint workflow-lint vuln tools fuzz oracle release clean \
+	fuzz-json fuzz-toml fuzz-yaml fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote
 
 VERSION ?= dev
 FUZZTIME ?= 10s
+FUZZMINIMIZETIME ?= 3s
 
 build:
 	go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/tql ./cmd/tql
@@ -38,16 +40,34 @@ tools:
 	go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 	go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
-fuzz:
-	go test ./formats/json -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -parallel 2
-	go test ./formats/toml -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -parallel 2
-	go test ./formats/yaml -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -parallel 2
-	go test ./internal/query -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -parallel 2
-	go test . -run '^$$' -fuzz '^FuzzExec$$' -fuzztime $(FUZZTIME) -parallel 2
-	go test . -run '^$$' -fuzz '^FuzzStyledInsertion$$' -fuzztime $(FUZZTIME) -parallel 2
-	go test ./formats/yaml -run '^$$' -fuzz '^FuzzEdits$$' -fuzztime $(FUZZTIME) -parallel 2
-	go test ./formats/yaml -run '^$$' -fuzz '^FuzzAliasEdits$$' -fuzztime $(FUZZTIME) -parallel 2
-	go test ./syntax -run '^$$' -fuzz '^FuzzQuote$$' -fuzztime $(FUZZTIME) -parallel 2
+fuzz: fuzz-json fuzz-toml fuzz-yaml fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote
+
+fuzz-json:
+	go test ./formats/json -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
+fuzz-toml:
+	go test ./formats/toml -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
+fuzz-yaml:
+	go test ./formats/yaml -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
+fuzz-query:
+	go test ./internal/query -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
+fuzz-exec:
+	go test . -run '^$$' -fuzz '^FuzzExec$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
+fuzz-insertion:
+	go test . -run '^$$' -fuzz '^FuzzStyledInsertion$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
+fuzz-yaml-edits:
+	go test ./formats/yaml -run '^$$' -fuzz '^FuzzEdits$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
+fuzz-yaml-aliases:
+	go test ./formats/yaml -run '^$$' -fuzz '^FuzzAliasEdits$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
+fuzz-quote:
+	go test ./syntax -run '^$$' -fuzz '^FuzzQuote$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
 
 oracle:
 	python3 formats/toml/testdata/oracle/compare.py

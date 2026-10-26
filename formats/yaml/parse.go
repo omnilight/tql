@@ -120,7 +120,7 @@ func marker(l line, s string) bool {
 	return l.indent == 0 && (l.text == s || strings.HasPrefix(l.text, s+" ") && strings.HasPrefix(strings.TrimSpace(l.text[len(s):]), "#"))
 }
 func (p *parser) skip() {
-	for p.i < len(p.lines) && (strings.TrimSpace(p.lines[p.i].text) == "" || strings.HasPrefix(p.lines[p.i].text, "#")) {
+	for p.i < len(p.lines) && (strings.TrimSpace(p.lines[p.i].text) == "" || strings.HasPrefix(strings.TrimLeft(p.lines[p.i].text, " \t"), "#")) {
 		p.i++
 	}
 }

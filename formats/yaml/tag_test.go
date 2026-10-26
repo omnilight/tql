@@ -75,3 +75,15 @@ func TestInvalidNativeTags(t *testing.T) {
 		}
 	}
 }
+
+func TestRemovingRootTagKeepsPropertyIndentation(t *testing.T) {
+	for _, source := range []string{"!!str\t", "!!str\t0", "!!map\t{}", "!!seq\t[]", "!!str &0\n0", "  !!map &0\n  a: 0", "!!str\t&a\n0"} {
+		t.Run(source, func(t *testing.T) {
+			root := parse(t, source)
+			out := replace(t, source, root, true)
+			if got := parse(t, out).Interface(); got != true {
+				t.Fatalf("%q resolved to %#v", out, got)
+			}
+		})
+	}
+}

@@ -23,6 +23,8 @@ func TestInsertFollowsLocalStyle(t *testing.T) {
 		{"noncompact map", "rows:\n  -\n      name: old\n", "rows", "", map[string]any{"name": "new"}, "rows:\n  -\n      name: old\n  -\n      name: new\n"},
 		{"empty flow comment", "{ # keep\n}\n", "", "a", true, "{ # keep\n  \"a\": true\n}\n"},
 		{"flow tight", "{'a':1,'b':2}", "", "c", syntax.Number("3"), "{'a':1,'b':2,'c':3}"},
+		{"empty quoted block value", `"":`, "", "new", true, "\"\":\n\"new\": true"},
+		{"empty quoted nested block", `"":`, "", "new", map[string]any{"enabled": true}, "\"\":\n\"new\":\n  \"enabled\": true"},
 		{"flow padding", "{ a: 1, b: 2 }", "", "c", syntax.Number("3"), "{ a: 1, b: 2, c: 3 }"},
 		{"flow trailing comma", "[old, keep, ]", "", "", "new", "[old, keep, new, ]"},
 		{"flow comment", "[old, # keep\n]", "", "", "new", "[old, # keep\n  new,\n]"},

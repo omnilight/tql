@@ -314,7 +314,7 @@ func (s insertionStyle) render(src []byte, value any, t *syntax.Node, indent int
 			if childBlock {
 				parts = append(parts, key+strings.TrimRight(s.colon, " \t")+s.nl+strings.Repeat(" ", childIndent)+text)
 			} else {
-				parts = append(parts, key+separatorFor(key, s.colon)+text)
+				parts = append(parts, key+separatorFor(key, s.colon, !block)+text)
 			}
 		}
 	} else {
@@ -407,8 +407,8 @@ func compactCollection(t *syntax.Node, kind syntax.Kind) bool {
 	}
 	return kind == syntax.Object
 }
-func separatorFor(key, colon string) string {
-	if key != "" && key[0] != '\'' && key[0] != '"' && !strings.HasSuffix(colon, " ") && !strings.HasSuffix(colon, "\t") {
+func separatorFor(key, colon string, inFlow bool) string {
+	if (!inFlow || key != "" && key[0] != '\'' && key[0] != '"') && !strings.HasSuffix(colon, " ") && !strings.HasSuffix(colon, "\t") {
 		return colon + " "
 	}
 	return colon
@@ -421,7 +421,7 @@ func insertFlow(src []byte, parent *syntax.Node, key string, value any, s insert
 	}
 	if parent.Kind == syntax.Object {
 		keyText := styledString(key, s.key, true, true)
-		text = keyText + separatorFor(keyText, s.colon) + text
+		text = keyText + separatorFor(keyText, s.colon, true) + text
 	}
 	spans := flowSpans(parent)
 	close := parent.End - 1

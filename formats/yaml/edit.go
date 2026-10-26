@@ -13,7 +13,7 @@ import (
 func (Format) Replace(src []byte, root, target *syntax.Node, value any) (result []syntax.Edit, resultErr error) {
 	defer func() {
 		if resultErr == nil {
-			result = tagEdits(target, value, result)
+			result = tagEdits(src, target, value, result)
 		}
 	}()
 	if edits, ok, e := aliasEdit(target, "replace", "", value); ok {
@@ -49,17 +49,25 @@ func (Format) Replace(src []byte, root, target *syntax.Node, value any) (result 
 		text += " "
 	}
 	if target.Start == target.End {
+		propertyEnd := 0
 		if tag, ok := target.Meta["tag"].(tagInfo); ok && tag.end == target.Start {
 			text = " " + text
 		}
+		if tag, ok := target.Meta["tag"].(tagInfo); ok {
+			propertyEnd = tag.end
+		}
 		if anchorEnd, ok := target.Meta["anchorEnd"].(int); ok && anchorEnd == target.Start {
 			text = " " + text
+		}
+		if anchorEnd, ok := target.Meta["anchorEnd"].(int); ok && anchorEnd > propertyEnd {
+			propertyEnd = anchorEnd
 		}
 		if target.Parent != nil && target.Start > 0 && (src[target.Start-1] == ':' || src[target.Start-1] == '-') {
 			text = " " + text
 		}
 		if target.Parent == nil {
-			if target.Start > 0 && src[target.Start-1] != '\r' && src[target.Start-1] != '\n' {
+			inlineProperties := propertyEnd > 0 && propertyEnd <= target.Start && !bytes.ContainsAny(src[propertyEnd:target.Start], "\r\n")
+			if target.Start > 0 && src[target.Start-1] != '\r' && src[target.Start-1] != '\n' && !inlineProperties {
 				text = newline(src) + text
 			}
 			if target.Start < len(src) && strings.HasPrefix(string(src[target.Start:]), "...") {
@@ -174,7 +182,7 @@ func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value an
 		if block {
 			leader += strings.TrimRight(style.colon, " \t") + nl + strings.Repeat(" ", valueIndent)
 		} else {
-			leader += separatorFor(styledString(key, style.key, true, false), style.colon)
+			leader += separatorFor(styledString(key, style.key, true, false), style.colon, false)
 		}
 	} else {
 		if block && !compact {

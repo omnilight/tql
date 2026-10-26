@@ -1,6 +1,7 @@
 package yaml
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/vasileknik76/tql/syntax"
@@ -141,9 +142,20 @@ func tagFits(t tagInfo, value any) bool {
 	}
 	return false
 }
-func tagEdits(target *syntax.Node, value any, edits []syntax.Edit) []syntax.Edit {
+func tagEdits(src []byte, target *syntax.Node, value any, edits []syntax.Edit) []syntax.Edit {
 	if tag, ok := target.Meta["tag"].(tagInfo); ok && !tagFits(tag, value) {
-		edits = append(edits, syntax.Edit{Start: tag.start, End: tag.end})
+		end := tag.end
+		if target.Parent == nil {
+			lineStart := bytes.LastIndexAny(src[:tag.start], "\r\n") + 1
+			if strings.Trim(string(src[lineStart:tag.start]), " \t") == "" {
+				// Property separation must not become indentation after removing
+				// a leading root tag, especially before an anchor or a tab.
+				for end < len(src) && (src[end] == ' ' || src[end] == '\t') {
+					end++
+				}
+			}
+		}
+		edits = append(edits, syntax.Edit{Start: tag.start, End: end})
 	}
 	return edits
 }
