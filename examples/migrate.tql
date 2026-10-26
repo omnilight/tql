@@ -1,0 +1,19 @@
+# Run against any examples/config.{json,toml,yaml}.
+let $delta = 10;
+if server.enabled {
+    server.port += $delta;
+}
+for $user in users[] {
+    if $user.name == "alice" {
+        $user.enabled = true;
+    } else if $user.name == "bob" {
+        $user.role ??= "reader";
+    }
+}
+let $numbers = 0;
+for $node in walk(.) {
+    if type($node) == "number" {
+        $numbers += 1;
+    }
+}
+$numbers

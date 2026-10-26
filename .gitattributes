@@ -1,0 +1,11 @@
+# Keep source and scripts portable while preserving byte-exact test fixtures.
+* text=auto eol=lf
+/integration/testdata/** -text whitespace=cr-at-eol
+/formats/*/testdata/fuzz/** -text
+/examples/config.* -text
+/examples/recipes/**/*.toml -text
+/examples/recipes/**/*.yaml -text
+/examples/recipes/**/*.json -text
+
+# Surgical JSON deletion can leave an intentional whitespace-only fixture line.
+/examples/recipes/node-release/expected/package.json whitespace=-blank-at-eol

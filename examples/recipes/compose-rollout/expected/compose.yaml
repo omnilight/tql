@@ -1,0 +1,27 @@
+name: example-dashboard
+
+services:
+  web:
+    image: "nginx:1.28-alpine" # Updated together with the admin frontend.
+    labels:
+      com.example.rollout: frontend
+    ports:
+      - "8080:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+  admin:
+    image: "nginx:1.28-alpine"
+    labels:
+      com.example.rollout: frontend
+    ports:
+      - "8081:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+  cache:
+    image: redis:7-alpine # This unrelated service must remain untouched.

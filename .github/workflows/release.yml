@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/test.yml
+
+  release:
+    name: Build and publish release
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Build release archives
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: go run ./scripts/release -version "$RELEASE_TAG" -output dist
+      - name: Verify checksums and native binary
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          (cd dist && sha256sum --check SHA256SUMS)
+          mkdir smoke
+          tar -xzf "dist/tql_${RELEASE_TAG#v}_linux_amd64.tar.gz" -C smoke
+          test "$(smoke/tql --version)" = "tql $RELEASE_TAG"
+          printf '{"port":80}\n' | smoke/tql -f json 'port = 8080' | grep -Fx '{"port":8080}'
+      - name: Publish complete GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" --verify-tag --draft --generate-notes --title "$RELEASE_TAG" "${prerelease[@]}" dist/*
+          gh release edit "$RELEASE_TAG" --draft=false

@@ -1,0 +1,4 @@
+# One program works on every example configuration.
+server.port = 9090;
+users[name == "alice"].enabled = true;
+server.timeout ??= 30

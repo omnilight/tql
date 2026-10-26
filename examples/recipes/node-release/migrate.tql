@@ -1,0 +1,6 @@
+# Require the project's chosen Node baseline and modernize its npm hooks.
+version = "1.5.0";
+engines.node = ">=22";
+scripts.test = "node --test --experimental-test-coverage";
+scripts.prepublishOnly = "npm test && npm run build";
+del(scripts.prepublish);

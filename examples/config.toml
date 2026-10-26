@@ -1,0 +1,15 @@
+# Application configuration
+name = 'demo'
+
+[server]
+host = "127.0.0.1"
+port   = 8080 # public listener
+enabled = true
+
+[[users]]
+name = "alice"
+enabled = false
+
+[[users]]
+name = "bob"
+enabled = true

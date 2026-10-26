@@ -1,0 +1,8 @@
+# Adopt extra checks without duplicating ones that are already enabled.
+run.timeout = "5m";
+for $name in ["misspell", "revive", "gocritic"][] {
+    if not contains($.linters.enable, $name) {
+        let $index = length($.linters.enable);
+        $.linters.enable[$index] = $name;
+    }
+}

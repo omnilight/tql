@@ -1,0 +1,8 @@
+# Roll out only the services explicitly labelled as frontends.
+for $service in services.* {
+    if $service.labels["com.example.rollout"] == "frontend" {
+        $service.image = "nginx:1.28-alpine";
+        $service.logging.options["max-size"] = "20m";
+        $service.logging.options["max-file"] = "3";
+    }
+}

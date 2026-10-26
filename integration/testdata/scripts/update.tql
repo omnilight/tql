@@ -1,0 +1,9 @@
+# Values are snapshots; loop bindings refer to the original document nodes.
+let $delta = 10;
+for $server in servers[] {
+  if $server.enabled {
+    $server.port += $delta;
+  } else {
+    $server.port = 0;
+  }
+}

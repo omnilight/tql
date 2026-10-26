@@ -1,0 +1,15 @@
+# golangci-lint v2 configuration, shared by local development and CI.
+version: "2"
+
+run:
+  timeout: 2m # CI needs enough time for the first, uncached analysis.
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - bodyclose # Existing choices and their comments stay in place.
+    - misspell
+  settings:
+    misspell:
+      locale: US

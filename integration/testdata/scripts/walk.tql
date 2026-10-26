@@ -1,0 +1,6 @@
+# Postorder traversal can update scalars without rebuilding their containers.
+for $node in walk(.) {
+  if type($node) == "number" {
+    $node |= . + 1;
+  }
+}

@@ -1,0 +1,7 @@
+let $delta = 1;
+for $server in servers[] {
+  $server.port += $delta;
+  if $server.port == 82 {
+    $server.port = 1 / 0;
+  }
+}

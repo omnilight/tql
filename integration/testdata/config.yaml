@@ -1,0 +1,10 @@
+# Сервис 🌳 — keep comments and layout
+title: 'Сервис 🌳'
+servers:
+  - name: first  # first endpoint
+    enabled: true
+    port: 80 # original spacing
+  - name: second
+    enabled: false
+    port: 81
+untouched: 'tabs and spaces  '

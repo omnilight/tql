@@ -1,0 +1,17 @@
+# Build, release, and local tool output.
+/bin/
+/dist/
+/.tools/
+/tql
+/tql.exe
+/coverage.out
+/coverage.html
+*.test
+*.test.exe
+*.prof
+
+# Editor and operating system files.
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

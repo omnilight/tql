@@ -1,0 +1,13 @@
+{
+    "name": "example-report-tools",
+    "version": "1.5.0",
+    "private": true,
+    "type": "module",
+    "engines": { "node": ">=22" },
+    "scripts": {
+        "test": "node --test --experimental-test-coverage",
+        
+        "build": "node scripts/build.mjs",
+        "prepublishOnly": "npm test && npm run build"
+    }
+}
