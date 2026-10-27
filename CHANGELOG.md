@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add a structured Go editing API with typed paths, atomic `Set`/`Del` patches,
+  document diff and merge planning, and optional TQL script export.
+- Extend the TOML parser and editor to TOML 1.1, including multiline inline
+  tables, the new string escapes, and times without seconds.
+- Add a source-aware YAML 1.2 graph and document-stream API that preserves tags,
+  anchors, aliases, complex keys, and recursive graph edges.
+- Accept colons before flow punctuation inside YAML block plain scalars, including
+  unquoted template tags such as `pod:{{ .pod }}`. Flow collection restrictions
+  remain unchanged.
+
 ## v0.1.0
 
 First public release of TQL — Tree Query Language, pronounced tequila.

@@ -167,3 +167,25 @@ func TestCommentsMayHaveTabSeparation(t *testing.T) {
 		t.Fatalf("replacement resolved to %#v", got)
 	}
 }
+
+func TestBlockPlainScalarColonBeforeFlowIndicators(t *testing.T) {
+	for _, value := range []string{"pod:{{ .pod }}", "value:[one,two]", "value:{name}", "value:,suffix", "value:]suffix", "value:}suffix"} {
+		for _, source := range []string{"tag: " + value + " # keep\n", "tags:\n  - " + value + " # keep\n"} {
+			t.Run(source, func(t *testing.T) {
+				root := parse(t, source)
+				node := root.Get("tag")
+				if node == nil {
+					node = root.Get("tags").Items[0]
+				}
+				if node.Kind != syntax.String || node.Value != value {
+					t.Fatalf("got %#v (%s), want %q", node.Value, node.Kind, value)
+				}
+			})
+		}
+	}
+	for _, source := range []string{"[pod:{{ .pod }}]", "{tag: value:{name}}"} {
+		if _, err := (Format{}).Parse([]byte(source)); err == nil {
+			t.Errorf("accepted invalid flow plain scalar: %q", source)
+		}
+	}
+}

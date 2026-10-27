@@ -2,6 +2,8 @@
 // preserving source formatting outside the requested changes.
 //
 // Parse creates a Document, Compile prepares a reusable query or script, and
-// Document.Exec or Document.Execute applies it atomically. Format implementations
-// extend the engine through the source-aware tree and edit protocol in package syntax.
+// Document.Exec, Document.Execute, or Document.Apply changes it atomically.
+// Package edit builds structured operations, document diffs, and merge patches.
+// Format implementations extend the engine through the source-aware tree and edit
+// protocol in package syntax.
 package tql

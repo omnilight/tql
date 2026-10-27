@@ -37,7 +37,7 @@ vuln:
 # Install development tools without adding runtime dependencies to go.mod.
 tools:
 	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
-	go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+	go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
 	go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
 fuzz: fuzz-json fuzz-toml fuzz-yaml fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote

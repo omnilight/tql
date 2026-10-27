@@ -3,6 +3,9 @@
 Import `github.com/vasileknik76/tql`. The module requires Go 1.23 or later and has
 no third-party dependencies.
 
+The [structured editing API](edit.md) builds commands from Go paths and values,
+diffs documents, and plans merges through package `edit`.
+
 ## Parse and execute
 
 ```go
