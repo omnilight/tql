@@ -48,8 +48,10 @@ replacing the entire array can change its representation.
 
 New entries infer assignment spacing, key and string quoting, and array layout
 from nearby entries. Literal quotes are used only when the new text is legal in
-that form. Object values use inline tables unless appended as an array-of-tables
-item. Existing comments and scalar spellings remain untouched.
+that form. Object values follow nearby table, inline or dotted conventions; object arrays
+can use array tables. With no structural evidence, new objects use tables.
+[Generation policies](style.md) can explicitly select each representation. Existing
+comments and scalar spellings remain untouched.
 
 See the [TOML backend](../formats/toml/README.md) for edit behavior and corpus tests.
 

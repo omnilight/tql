@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/vasileknik76/tql"
 	"github.com/vasileknik76/tql/syntax"
@@ -29,6 +31,15 @@ Examples:
 
 Options:
   -f, --format NAME     Input format: json, toml, yaml (yml)
+      --style STYLE     New collections: auto, block, flow (default auto)
+      --object-style S  New objects: auto, block, flow, dotted (TOML)
+      --array-style S   New arrays: auto, block, flow
+      --string-style S  auto, single, double, plain/folded (YAML), literal,
+                        multiline (TOML)
+      --number-style S  New integers: auto, decimal, hex, octal, binary (TOML)
+      --key-style S     New keys: auto, plain, single, double
+      --indent UNIT     Indent: auto, 1–16 spaces (number), tab (TOML)
+      --line-ending S   New lines: auto, lf, crlf
   -i, --in-place        Atomically replace a regular input file (mutations only)
   -r, --raw             Print read strings without JSON quotes
       --values          Print read results even when the query also mutates
@@ -45,7 +56,17 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	fs := flag.NewFlagSet("tql", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var format, queryFile string
+	var style tql.Style
+	var collectionStyle, indent string
 	var inPlace, raw, values, check, showVersion, help bool
+	fs.StringVar(&collectionStyle, "style", "auto", "new collection style")
+	fs.StringVar(&style.Objects, "object-style", "auto", "new object style")
+	fs.StringVar(&style.Arrays, "array-style", "auto", "new array style")
+	fs.StringVar(&style.Strings, "string-style", "auto", "new string style")
+	fs.StringVar(&style.Numbers, "number-style", "auto", "new integer style")
+	fs.StringVar(&style.Keys, "key-style", "auto", "new key style")
+	fs.StringVar(&indent, "indent", "auto", "indent unit")
+	fs.StringVar(&style.LineEnding, "line-ending", "auto", "new line endings")
 	fs.StringVar(&format, "f", "", "input format")
 	fs.StringVar(&format, "format", "", "input format")
 	fs.BoolVar(&inPlace, "i", false, "edit in place")
@@ -150,7 +171,36 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	doc, err := tql.Parse(source, format)
+	if collectionStyle != "auto" && collectionStyle != "block" && collectionStyle != "flow" {
+		return fail(fmt.Errorf("invalid --style %q: expected auto, block, flow", collectionStyle))
+	}
+	// A specific option overrides the shorthand, independently of flag order.
+	var objectsSet, arraysSet bool
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "object-style" {
+			objectsSet = true
+		}
+		if f.Name == "array-style" {
+			arraysSet = true
+		}
+	})
+	if !objectsSet {
+		style.Objects = collectionStyle
+	}
+	if !arraysSet {
+		style.Arrays = collectionStyle
+	}
+
+	if indent == "tab" {
+		style.Indent = "\t"
+	} else if indent != "auto" {
+		n, e := strconv.Atoi(indent)
+		if e != nil || n < 1 || n > 16 {
+			return fail(fmt.Errorf("--indent requires auto, tab, or a number from 1 to 16"))
+		}
+		style.Indent = strings.Repeat(" ", n)
+	}
+	doc, err := tql.Parse(source, format, tql.WithStyle(style))
 	if err != nil {
 		return fail(err)
 	}

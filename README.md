@@ -43,7 +43,9 @@ original bytes unchanged, including a number's spelling (`1` versus `1.0`).
 New entries follow the surrounding style where possible: indentation, separators,
 quotes, line endings, and collection layout. TQL uses nearby entries as examples
 and falls back to a valid default when the source provides no clear convention.
-Existing entries and comments stay in place.
+Existing entries and comments stay in place. YAML and TOML support explicit
+[per-kind generation policies](docs/style.md) through CLI flags and `tql.WithStyle`;
+the default is `auto`.
 
 Insertions and deletions may also change the punctuation, indentation, or table
 headers needed to keep the document valid. Replacing a whole object or array can

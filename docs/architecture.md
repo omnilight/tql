@@ -96,9 +96,12 @@ Comments, anchors, and existing scalar contents are never copied as style sample
 New object keys are sorted by default. YAML can follow a template's field order
 and sorts additional fields; existing keys always retain their order.
 
-This is best-effort local inference, not a configurable formatter. Mixed styles
-and ambiguous alignment do not define a single correct result. It does not rewrite
-existing entries or promise to retain a replaced container's internal formatting.
+This is best-effort inference with an optional document-local generation policy,
+not a whole-document formatter. YAML and TOML expose per-kind choices through
+`tql.WithStyle` and CLI flags, all defaulting to `auto`. See [generation
+style](style.md) for the inference rules, configuration decision and format
+constraints. It does not rewrite existing entries or promise to retain a replaced
+container's internal formatting.
 For appends, assign at an array's current length instead of replacing the array
 with `+=`.
 

@@ -160,3 +160,35 @@ func TestOutputFailure(t *testing.T) {
 		t.Fatalf("code=%d", code)
 	}
 }
+
+func TestCLIStyle(t *testing.T) {
+	for _, tt := range []struct {
+		args      []string
+		src, want string
+		code      int
+	}{
+		{[]string{"-f", "toml", "new.v=2"}, "old={v=1}\n", "old={v=1}\nnew={v=2}\n", 0},
+		{[]string{"-f", "toml", "--style", "block", "new.v=2"}, "old={v=1}\n", "old={v=1}\n\n[new]\nv=2\n", 0},
+		{[]string{"-f", "toml", "--style", "flow", "--object-style", "block", "new.v=2"}, "old={v=1}\n", "old={v=1}\n\n[new]\nv=2\n", 0},
+		{[]string{"-f", "toml", "--object-style", "block", "--style", "flow", "new.v=2"}, "old={v=1}\n", "old={v=1}\n\n[new]\nv=2\n", 0},
+		{[]string{"-f", "toml", "--object-style", "auto", "--style", "block", "new.v=2"}, "old={v=1}\n", "old={v=1}\nnew={v=2}\n", 0},
+		{[]string{"-f", "toml", "--array-style", "block", "--indent", "4", "new=[2,3]"}, "old=1\n", "old=1\nnew=[\n    2,\n    3\n]\n", 0},
+		{[]string{"-f", "yaml", "--key-style", "single", "--string-style", "single", "new=\"yes\""}, "old: before\n", "old: before\n'new': 'yes'\n", 0},
+		{[]string{"-f", "toml", "--number-style", "hex", "new=255"}, "old=1\n", "old=1\nnew=0xff\n", 0},
+		{[]string{"-f", "yaml", "--indent", "tab", "new=1"}, "old: 1\n", "", 2},
+		{[]string{"-f", "toml", "--indent", "0", "new=1"}, "old=1\n", "", 2},
+		{[]string{"-f", "yaml", "--style", "inline", "new=1"}, "old: 1\n", "", 2},
+		{[]string{"-f", "yaml", "--number-style", "binary", "new=1"}, "old: 1\n", "", 2},
+		{[]string{"-f", "json", "--style", "block", "new=1"}, "{}", "", 2},
+		{[]string{"-f", "toml", "--line-ending", "crlf", "new=2"}, "old=1\n", "old=1\nnew=2\r\n", 0},
+		{[]string{"-f", "toml", "--style", "block", "--check", "new.v=1"}, "old=1\n", "", 1},
+	} {
+		code, out, err := invoke(tt.args, tt.src)
+		if code != tt.code || out != tt.want {
+			t.Errorf("%v: code=%d out=%q err=%s, want %d %q", tt.args, code, out, err, tt.code, tt.want)
+		}
+		if code == 2 && err == "" {
+			t.Error("missing diagnostic")
+		}
+	}
+}

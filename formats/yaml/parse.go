@@ -12,7 +12,16 @@ import (
 )
 
 // Format parses and edits YAML documents without reformatting untouched source.
-type Format struct{}
+type Format struct{ style syntax.Style }
+
+// WithStyle returns an independent backend with an explicit generation policy.
+func (f Format) WithStyle(style syntax.Style) (syntax.Format, error) {
+	if err := style.Validate("yaml"); err != nil {
+		return nil, err
+	}
+	f.style = style
+	return f, nil
+}
 
 var _ syntax.Format = Format{}
 

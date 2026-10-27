@@ -74,6 +74,24 @@ A `let` declaration alone is not classified as a mutation.
 For a single operation, `tql.Eval(source, "toml", "server.port = 9090")` combines
 parsing and execution.
 
+## Generation style
+
+`Parse`, `ParseWith`, `Registry.Parse`, and `Eval` accept `tql.WithStyle`:
+
+```go
+doc, err := tql.Parse(source, "toml", tql.WithStyle(tql.Style{
+    Objects: "block",
+    Arrays: "auto",
+    Strings: "single",
+}))
+```
+
+Empty fields mean `auto`. The policy applies to inserted members and appended
+items through both script execution and `Apply`; it never reformats untouched
+source. Invalid styles and unsupported format combinations return errors.
+See [generation style](style.md) for all fields, format constraints, inference
+rules, and the configuration design.
+
 ## Reuse a compiled program
 
 The following fragment assumes `inputs` is a `[][]byte` and the enclosing function

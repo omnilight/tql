@@ -77,6 +77,14 @@ YAML documents.
 | Flag | Meaning |
 | --- | --- |
 | `-f`, `--format NAME` | Input format: `json`, `toml`, `yaml`, or `yml` |
+| `--style STYLE` | New collections: `auto` (default), `block`, `flow` |
+| `--object-style STYLE` | New objects: `auto`, `block`, `flow`, `dotted` (TOML) |
+| `--array-style STYLE` | New arrays: `auto`, `block`, `flow` |
+| `--string-style STYLE` | `auto`, `single`, `double`, `literal`, `plain`/`folded` (YAML), `multiline` (TOML) |
+| `--key-style STYLE` | New keys: `auto`, `plain`, `single`, `double` |
+| `--number-style STYLE` | New integers: `auto`, `decimal`, `hex`, `octal`, `binary` (TOML) |
+| `--indent UNIT` | `auto`, 1–16 spaces (number), `tab` (TOML) |
+| `--line-ending STYLE` | New text: `auto`, `lf`, `crlf` |
 | `-i`, `--in-place` | Replace a regular input file after successful execution |
 | `-r`, `--raw` | Print result strings without JSON quotes |
 | `--values` | Print read results even when the program contains mutations |
@@ -102,6 +110,10 @@ tql -i 'server.port = 9090' config.toml
 # Return read values after an edit.
 tql --values 'server.port = 9090; server.port' config.toml
 ```
+
+Explicit per-kind collection flags override `--style` regardless of order. Style
+settings control additions, not whole-file formatting. See [generation style](style.md)
+for examples, supported representations and inference rules.
 
 ## Output
 

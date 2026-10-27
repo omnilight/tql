@@ -42,14 +42,14 @@ func (r *Registry) Register(name string, f Format) error {
 }
 
 // Parse parses a copy of source using a format registered under name.
-func (r *Registry) Parse(source []byte, name string) (*Document, error) {
+func (r *Registry) Parse(source []byte, name string, options ...Option) (*Document, error) {
 	r.mu.RLock()
 	f, ok := r.formats[formatName(name)]
 	r.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("unknown format %q", name)
 	}
-	return ParseWith(source, f)
+	return ParseWith(source, f, options...)
 }
 
 var defaultRegistry = &Registry{formats: map[string]Format{
