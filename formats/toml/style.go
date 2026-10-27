@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	scalarstyle "github.com/vasileknik76/tql/internal/style"
 	"github.com/vasileknik76/tql/syntax"
 )
 
@@ -15,6 +16,7 @@ type insertionStyle struct {
 	indent, unit, nl                                                   string
 	keyQuote, stringQuote                                              byte
 	equalsColumn                                                       int
+	policy                                                             syntax.Style
 }
 
 func defaultInsertionStyle(src []byte) insertionStyle {
@@ -155,41 +157,10 @@ func styledPath(keys []string, s insertionStyle) string {
 	return strings.Join(parts, ".")
 }
 
-func valueKind(value any) syntax.Kind {
-	switch value.(type) {
-	case map[string]any:
-		return syntax.Object
-	case []any:
-		return syntax.Array
-	case string:
-		return syntax.String
-	}
-	return ""
-}
+func valueKind(value any) syntax.Kind { return scalarstyle.Kind(value) }
 
-func insertionTemplate(n *syntax.Node, kind syntax.Kind) *syntax.Node {
-	if kind == "" {
-		return nil
-	}
-	for cur := n; cur != nil; cur = cur.Parent {
-		for i := len(cur.Items) - 1; i >= 0; i-- {
-			v := cur.Items[i]
-			if v != n && v.Kind == kind && v.Start >= 0 {
-				return v
-			}
-		}
-		var result *syntax.Node
-		visitSectionEntries(cur, func(e *syntax.Entry) {
-			v := e.Value
-			if v != n && v.Kind == kind && v.Start >= 0 && (result == nil || v.Start > result.Start) {
-				result = v
-			}
-		})
-		if result != nil {
-			return result
-		}
-	}
-	return nil
+func insertionTemplate(src []byte, n *syntax.Node, kind syntax.Kind) *syntax.Node {
+	return syntax.NearbyTemplate(n, kind, nil, func(v *syntax.Node) string { return scalarstyle.Signature(src, v) })
 }
 
 func containerWhitespace(src []byte, n *syntax.Node, s insertionStyle) insertionStyle {
@@ -257,25 +228,32 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 	if depth > 256 {
 		return "", fmt.Errorf("TOML value nesting exceeds 256 levels")
 	}
+	baseIndent := s.indent
 	if template != nil {
 		s = containerWhitespace(src, template, s)
 	}
+	s = s.overrides()
 	switch v := value.(type) {
 	case string:
 		q := s.stringQuote
+		sample := ""
 		if template != nil && template.Kind == syntax.String && template.Start >= 0 {
-			q = src[template.Start]
+			sample = string(src[template.Start:template.End])
+			if s.policy.Strings == "" || s.policy.Strings == "auto" {
+				q = src[template.Start]
+			}
 		}
-		return styledString(v, q), nil
+		return strings.ReplaceAll(renderString(v, s.policy.Strings, sample, q), "\n", s.nl), nil
+
 	case []any:
 		parts := make([]string, len(v))
 		var exemplar *syntax.Node
 		if template != nil && template.Kind == syntax.Array && len(template.Items) > 0 {
 			exemplar = template.Items[len(template.Items)-1]
 		}
-		multi := template != nil && template.Start >= 0 && strings.Contains(string(src[template.Start:template.End]), "\n")
+		multi := s.policy.Arrays == "block" || s.policy.Arrays != "flow" && template != nil && template.Start >= 0 && strings.Contains(string(src[template.Start:template.End]), "\n")
 		itemIndent := s.indent + s.unit
-		if multi && len(template.Items) > 0 {
+		if multi && template != nil && template.Start >= 0 && len(template.Items) > 0 && s.policy.Indent == "" {
 			base := sourceIndent(src, template.Start)
 			if gap := sourceIndent(src, template.Items[len(template.Items)-1].Start); strings.HasPrefix(gap, base) {
 				itemIndent = s.indent + strings.TrimPrefix(gap, base)
@@ -299,7 +277,10 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 		}
 		if multi {
 			trailing := false
-			last := template.Items
+			var last []*syntax.Node
+			if template != nil {
+				last = template.Items
+			}
 			if len(last) > 0 {
 				trailing = comma(src, last[len(last)-1].End, template.End-1) >= 0
 			}
@@ -317,6 +298,18 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 		}
 		sort.Strings(keys)
 		parts := make([]string, 0, len(keys))
+		multiline := template != nil && template.Style == "inline" && template.Start >= 0 && strings.Contains(string(src[template.Start:template.End]), "\n")
+		itemIndent := baseIndent + s.unit
+		if multiline && s.policy.Indent == "" {
+			entries := sectionEntries(template)
+			if len(entries) > 0 {
+				oldBase := sourceIndent(src, template.Start)
+				oldItem := sourceIndent(src, entries[len(entries)-1].Start)
+				if strings.HasPrefix(oldItem, oldBase) {
+					itemIndent = baseIndent + strings.TrimPrefix(oldItem, oldBase)
+				}
+			}
+		}
 		templates := make(map[syntax.Kind]*syntax.Node, 3)
 		for _, k := range keys {
 			var child *syntax.Node
@@ -327,12 +320,16 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 					var found bool
 					child, found = templates[kind]
 					if !found {
-						child = insertionTemplate(template, kind)
+						child = insertionTemplate(src, template, kind)
 						templates[kind] = child
 					}
 				}
 			}
-			text, err := renderInsertion(src, v[k], child, s, depth+1)
+			childStyle := s
+			if multiline {
+				childStyle.indent = itemIndent
+			}
+			text, err := renderInsertion(src, v[k], child, childStyle, depth+1)
 			if err != nil {
 				return "", err
 			}
@@ -341,15 +338,32 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 		if len(parts) == 0 {
 			return "{" + s.objectPadding + "}", nil
 		}
+		if multiline {
+			tail := ""
+			entries := sectionEntries(template)
+			if len(entries) > 0 && comma(src, entries[len(entries)-1].End, template.End-1) >= 0 {
+				tail = s.commaBefore + ","
+			}
+			return "{" + s.nl + itemIndent + strings.Join(parts, s.commaBefore+","+s.nl+itemIndent) + tail + s.nl + baseIndent + "}", nil
+		}
 		return "{" + s.objectPadding + strings.Join(parts, s.commaBefore+","+s.separator) + s.objectPadding + "}", nil
 	default:
+		sample := ""
+		if template != nil && template.Start >= 0 {
+			sample = string(src[template.Start:template.End])
+		}
+		if text, ok := scalarstyle.Integer(value, s.policy.Numbers, sample); ok {
+			return text, nil
+		}
 		return render(value)
 	}
 }
 
-func insertArrayStyled(src []byte, parent *syntax.Node, value any) ([]syntax.Edit, error) {
+func insertArrayStyled(src []byte, parent *syntax.Node, value any, policy syntax.Style) ([]syntax.Edit, error) {
 	s := localInsertionStyle(src, parent)
-	template := insertionTemplate(parent, valueKind(value))
+	s.policy = policy
+	s = s.overrides()
+	template := collectionTemplate(src, parent, value)
 	open, close := parent.Start+1, parent.End-1
 	multiline := strings.Contains(string(src[open:close]), "\n")
 	if !multiline {
@@ -473,37 +487,6 @@ func insertInlineAssignment(src []byte, owner *syntax.Node, assignment string, s
 		return []syntax.Edit{edit(c+1, c+1, s.nl+indent+assignment+s.commaBefore+",")}
 	}
 	return []syntax.Edit{edit(last.End, last.End, s.commaBefore+","+s.nl+indent+assignment)}
-}
-
-func renderTableInsertion(src []byte, m map[string]any, template *syntax.Node, s insertionStyle) (string, error) {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	templates := make(map[syntax.Kind]*syntax.Node, 3)
-	for _, k := range keys {
-		var child *syntax.Node
-		if template != nil {
-			child = template.Get(k)
-			if child == nil {
-				kind := valueKind(m[k])
-				var found bool
-				child, found = templates[kind]
-				if !found {
-					child = insertionTemplate(template, kind)
-					templates[kind] = child
-				}
-			}
-		}
-		text, err := renderInsertion(src, m[k], child, s, 0)
-		if err != nil {
-			return "", err
-		}
-		b.WriteString(s.indent + styledAssignment(styledKey(k, s), text, s) + s.nl)
-	}
-	return b.String(), nil
 }
 
 // Treat equals signs as aligned only when at least two differently sized keys

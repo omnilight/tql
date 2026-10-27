@@ -8,14 +8,18 @@ import (
 )
 
 // Parse copies source and parses it using a registered format name.
-func Parse(source []byte, format string) (*Document, error) {
-	return defaultRegistry.Parse(source, format)
+func Parse(source []byte, format string, options ...Option) (*Document, error) {
+	return defaultRegistry.Parse(source, format, options...)
 }
 
 // ParseWith uses an explicit backend without modifying a registry.
-func ParseWith(source []byte, format Format) (*Document, error) {
+func ParseWith(source []byte, format Format, options ...Option) (*Document, error) {
 	if format == nil {
 		return nil, errors.New("nil format")
+	}
+	format, err := configuredFormat(format, options)
+	if err != nil {
+		return nil, err
 	}
 	src := bytes.Clone(source)
 	root, err := format.Parse(src)
@@ -79,8 +83,8 @@ func (d *Document) Query(text string) ([]any, error) {
 }
 
 // Eval is the one-shot equivalent of Parse followed by Exec.
-func Eval(source []byte, format, text string) (*Result, error) {
-	d, err := Parse(source, format)
+func Eval(source []byte, format, text string, options ...Option) (*Result, error) {
+	d, err := Parse(source, format, options...)
 	if err != nil {
 		return nil, err
 	}

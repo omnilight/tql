@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Infer table, inline and dotted object conventions when adding TOML values,
+  including arrays of tables and nested headers within a selected array element.
+- Add document-local `tql.WithStyle` and CLI generation policies for objects,
+  arrays, strings, keys, integers, indentation and line endings, defaulting to
+  `auto`. Preserve value semantics when a preferred spelling is unsuitable.
+
 ## v0.2.0
 
 - Add a structured Go editing API with typed paths, atomic `Set`/`Del` patches,

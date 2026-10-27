@@ -13,7 +13,16 @@ import (
 )
 
 // Format parses and edits TOML documents without reformatting untouched source.
-type Format struct{}
+type Format struct{ style syntax.Style }
+
+// WithStyle returns an independent backend with an explicit generation policy.
+func (f Format) WithStyle(style syntax.Style) (syntax.Format, error) {
+	if err := style.Validate("toml"); err != nil {
+		return nil, err
+	}
+	f.style = style
+	return f, nil
+}
 
 var _ syntax.Format = Format{}
 

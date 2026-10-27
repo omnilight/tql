@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	scalarstyle "github.com/vasileknik76/tql/internal/style"
 	"github.com/vasileknik76/tql/syntax"
 )
 
@@ -12,6 +13,7 @@ import (
 type insertionStyle struct {
 	key, str, colon, comma, nl string
 	step                       int
+	policy                     syntax.Style
 }
 
 func styleAt(src []byte, parent *syntax.Node) insertionStyle {
@@ -146,44 +148,25 @@ func safePlain(s string, key, inFlow bool) bool {
 	}
 	return v != nil && v.Kind == syntax.String && v.Value == s
 }
-func valueKind(v any) syntax.Kind {
-	switch v.(type) {
-	case map[string]any:
-		return syntax.Object
-	case []any:
-		return syntax.Array
-	case string:
-		return syntax.String
-	}
-	return ""
-}
-func insertionTemplate(parent *syntax.Node, value any) *syntax.Node {
+func valueKind(value any) syntax.Kind { return scalarstyle.Kind(value) }
+
+func insertionTemplate(src []byte, parent *syntax.Node, value any) *syntax.Node {
 	kind := valueKind(value)
-	for n := parent; n != nil; n = n.Parent {
-		for i := 0; i < childCount(n); i++ {
-			v := reverseChild(n, i)
-			if v.Kind == kind {
-				return v
-			}
-		}
-	}
-	return nil
+	return syntax.NearbyTemplate(parent, kind, func(n *syntax.Node) bool {
+		return kind != syntax.Array || scalarstyle.ObjectArrayNode(n) == scalarstyle.ObjectArray(value)
+	}, func(v *syntax.Node) string { return scalarstyle.Signature(src, v) })
 }
-func childTemplate(n *syntax.Node, key string, v any) *syntax.Node {
+
+func childTemplate(src []byte, n *syntax.Node, key string, v any) *syntax.Node {
 	if n == nil {
 		return nil
 	}
 	if x := n.Get(key); x != nil && x.Kind == valueKind(v) {
 		return x
 	}
-	for i := 0; i < childCount(n); i++ {
-		x := reverseChild(n, i)
-		if x.Kind == valueKind(v) {
-			return x
-		}
-	}
-	return nil
+	return insertionTemplate(src, n, v)
 }
+
 func flowSpans(n *syntax.Node) [][2]int {
 	spans := make([][2]int, 0, len(n.Items)+len(n.Entries))
 	for _, v := range n.Items {
@@ -272,20 +255,54 @@ func (s insertionStyle) withTemplate(src []byte, t *syntax.Node) insertionStyle 
 	return s
 }
 func (s insertionStyle) render(src []byte, value any, t *syntax.Node, indent int, forceFlow bool) (string, bool, error) {
-	s = s.withTemplate(src, t)
+	s = s.withTemplate(src, t).overrides()
 	if str, ok := value.(string); ok {
 		style := s.str
-		if t != nil && (t.Style == "single" || t.Style == "double" || t.Style == "plain") {
+		if (s.policy.Strings == "" || s.policy.Strings == "auto") && t != nil && (t.Style == "single" || t.Style == "double" || t.Style == "plain") {
 			style = t.Style
+		}
+		if s.policy.Strings != "" && s.policy.Strings != "auto" {
+			style = s.policy.Strings
+		}
+		if (s.policy.Strings == "" || s.policy.Strings == "auto") && t != nil && t.Style == "block-scalar" {
+			style = "literal"
+			if src[t.Start] == '>' {
+				style = "folded"
+			}
+		}
+		if !forceFlow && (style == "literal" || style == "folded") {
+			if text, ok := s.blockString(str, style, indent); ok {
+				return text, false, nil
+			}
 		}
 		return styledString(str, style, false, forceFlow), false, nil
 	}
 	kind := valueKind(value)
 	if kind != syntax.Object && kind != syntax.Array {
+		sample := ""
+		if t != nil && t.Start >= 0 && t.End <= len(src) {
+			sample = string(src[t.Start:t.End])
+		}
+		if text, ok := scalarstyle.Integer(value, s.policy.Numbers, sample); ok {
+			return text, false, nil
+		}
 		text, e := encode(value)
+		if t != nil && (value == nil || kind == syntax.Bool) {
+			if value == nil && sample == "~" {
+				text = "~"
+			} else if sample != "" && sample == strings.ToUpper(sample) {
+				text = strings.ToUpper(text)
+			} else if len(sample) > 0 && sample[0] >= 'A' && sample[0] <= 'Z' {
+				text = strings.ToUpper(text[:1]) + text[1:]
+			}
+		}
 		return text, false, e
 	}
-	block := !forceFlow && (t == nil || t.Style == "block")
+	layout := s.policy.Objects
+	if kind == syntax.Array {
+		layout = s.policy.Arrays
+	}
+	block := !forceFlow && (layout == "block" || (layout == "" || layout == "auto") && (t == nil || t.Style == "block"))
 	if kind == syntax.Object && len(value.(map[string]any)) == 0 || kind == syntax.Array && len(value.([]any)) == 0 {
 		text, e := encode(value)
 		return text, false, e
@@ -295,14 +312,14 @@ func (s insertionStyle) render(src []byte, value any, t *syntax.Node, indent int
 	if kind == syntax.Object {
 		m := value.(map[string]any)
 		for _, k := range orderedKeys(m, t) {
-			ct := childTemplate(t, k, m[k])
+			ct := childTemplate(src, t, k, m[k])
 			childIndent := indent + s.step
 			text, childBlock, e := s.render(src, m[k], ct, childIndent, !block)
 			if e != nil {
 				return "", false, e
 			}
 			quoteStyle := s.key
-			if t != nil {
+			if (s.policy.Keys == "" || s.policy.Keys == "auto") && t != nil {
 				for _, entry := range t.Entries {
 					if entry.Key == k {
 						quoteStyle = keyStyle(src, entry)
@@ -319,7 +336,7 @@ func (s insertionStyle) render(src []byte, value any, t *syntax.Node, indent int
 		}
 	} else {
 		for _, v := range value.([]any) {
-			ct := childTemplate(t, "", v)
+			ct := childTemplate(src, t, "", v)
 			childIndent := indent + s.step
 			compact := compactCollection(ct, valueKind(v))
 			gap := " "

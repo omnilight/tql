@@ -99,7 +99,7 @@ func aliasPath(n *syntax.Node) (*syntax.Node, []aliasStep) {
 	}
 	return nil, nil
 }
-func aliasEdit(n *syntax.Node, op, key string, value any) ([]syntax.Edit, bool, error) {
+func aliasEdit(src []byte, n *syntax.Node, op, key string, value any, policy syntax.Style) ([]syntax.Edit, bool, error) {
 	root, path := aliasPath(n)
 	if root == nil || op == "delete" && len(path) == 0 {
 		return nil, false, nil
@@ -159,6 +159,13 @@ func aliasEdit(n *syntax.Node, op, key string, value any) ([]syntax.Edit, bool, 
 		return nil, true, e
 	}
 	text, e := encode(changed)
+	if !policy.IsAuto() || op == "insert" {
+		s := styleAt(src, root)
+		s.policy = policy
+		s = s.overrides()
+		text, _, e = s.render(src, changed, root, len(sourceIndent(src, root.Start))+s.step, true)
+	}
+
 	if e != nil {
 		return nil, true, e
 	}

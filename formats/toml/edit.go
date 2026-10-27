@@ -151,13 +151,34 @@ func allHeaders(n *syntax.Node, positions *[]int) {
 		allHeaders(v, positions)
 	}
 }
-func insertion(src []byte, root, parent *syntax.Node, key string, value any) ([]syntax.Edit, error) {
+func insertion(src []byte, root, parent *syntax.Node, key string, value any, policy syntax.Style) ([]syntax.Edit, error) {
 	owner, path, err := context(parent)
 	if err != nil {
 		return nil, err
 	}
 	style := localInsertionStyle(src, parent)
-	template := insertionTemplate(parent, valueKind(value))
+	style.policy = policy
+	style = style.overrides()
+	template := collectionTemplate(src, parent, value)
+	if owner.Style != "inline" {
+		objectTemplate := template
+		if template == nil || template.Kind != syntax.Object {
+			objectTemplate = collectionTemplate(src, parent, map[string]any{})
+		}
+		mode := objectMode(policy, objectTemplate)
+		if m, ok := value.(map[string]any); ok && mode != "flow" && (mode != "dotted" || len(m) != 0) {
+			return insertStructure(src, parent, key, value, template, style, mode)
+		}
+		if xs, ok := value.([]any); ok && tableArray(xs) && arrayTables(policy, template, mode) {
+			return insertStructure(src, parent, key, value, template, style, mode)
+		}
+	}
+	if template == nil && valueKind(value) == syntax.Array {
+		exemplar := collectionTemplate(src, parent, map[string]any{})
+		if exemplar != nil {
+			template = &syntax.Node{Kind: syntax.Array, Start: -1, End: -1, Items: []*syntax.Node{exemplar}}
+		}
+	}
 	text, err := renderInsertion(src, value, template, style, 0)
 	if err != nil {
 		return nil, err
@@ -181,9 +202,9 @@ func insertion(src []byte, root, parent *syntax.Node, key string, value any) ([]
 	}
 	prefix := ""
 	if pos > 0 && src[pos-1] != '\n' {
-		prefix = newlineStyle(src)
+		prefix = style.nl
 	}
-	suffix := newlineStyle(src)
+	suffix := style.nl
 	if pos == len(src) && pos > 0 && src[pos-1] != '\n' {
 		suffix = ""
 	}
@@ -191,7 +212,7 @@ func insertion(src []byte, root, parent *syntax.Node, key string, value any) ([]
 }
 
 // Insert plans a missing object member or an array append.
-func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value any) ([]syntax.Edit, error) {
+func (f Format) Insert(src []byte, root, parent *syntax.Node, key string, value any) ([]syntax.Edit, error) {
 	if root == nil || parent == nil {
 		return nil, fmt.Errorf("toml: invalid insertion target")
 	}
@@ -216,7 +237,9 @@ func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value an
 			if template != nil {
 				style = localInsertionStyle(src, template)
 			}
-			body, err := renderTableInsertion(src, m, template, style)
+			style.policy = f.style
+			style = style.overrides()
+			body, err := renderSection(src, m, keys, template, style, 0)
 			if err != nil {
 				return nil, err
 			}
@@ -234,7 +257,7 @@ func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value an
 			}
 			prefix := ""
 			if pos > 0 && src[pos-1] != '\n' {
-				prefix = newlineStyle(src)
+				prefix = style.nl
 			}
 			header := "[[" + pathText(keys) + "]]"
 			if template != nil {
@@ -249,7 +272,7 @@ func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value an
 			}
 			return []syntax.Edit{edit(pos, pos, addition)}, nil
 		}
-		return insertArrayStyled(src, parent, value)
+		return insertArrayStyled(src, parent, value, f.style)
 	}
 	if parent.Kind != syntax.Object {
 		return nil, fmt.Errorf("TOML insertion requires object or array")
@@ -257,7 +280,7 @@ func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value an
 	if parent.Get(key) != nil {
 		return nil, fmt.Errorf("key %q already exists", key)
 	}
-	return insertion(src, root, parent, key, value)
+	return insertion(src, root, parent, key, value, f.style)
 }
 func absolutePath(n *syntax.Node) ([]string, error) {
 	var keys []string
@@ -407,7 +430,7 @@ func (f Format) Replace(src []byte, root, target *syntax.Node, value any) ([]syn
 	if err != nil {
 		return nil, err
 	}
-	ins, err := insertion(src, root, target.Parent, e.Key, value)
+	ins, err := insertion(src, root, target.Parent, e.Key, value, f.style)
 	if err != nil {
 		return nil, err
 	}

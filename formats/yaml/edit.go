@@ -10,16 +10,26 @@ import (
 )
 
 // Replace plans replacement of a selected value.
-func (Format) Replace(src []byte, root, target *syntax.Node, value any) (result []syntax.Edit, resultErr error) {
+func (f Format) Replace(src []byte, root, target *syntax.Node, value any) (result []syntax.Edit, resultErr error) {
 	defer func() {
 		if resultErr == nil {
 			result = tagEdits(src, target, value, result)
 		}
 	}()
-	if edits, ok, e := aliasEdit(target, "replace", "", value); ok {
+	if edits, ok, e := aliasEdit(src, target, "replace", "", value, f.style); ok {
 		return edits, e
 	}
 	text, e := encode(value)
+	if target.Parent == nil && target.Kind == syntax.Null && strings.TrimSpace(string(src)) == "" {
+		style := styleAt(src, nil)
+		style.policy = f.style
+		style = style.overrides()
+		var block bool
+		text, block, e = style.render(src, value, nil, 0, false)
+		if e == nil && (block || strings.ContainsAny(text, "\r\n")) {
+			text += style.nl
+		}
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -144,8 +154,8 @@ func newline(src []byte) string {
 }
 
 // Insert plans a missing object member or an array append.
-func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value any) ([]syntax.Edit, error) {
-	if edits, ok, e := aliasEdit(parent, "insert", key, value); ok {
+func (f Format) Insert(src []byte, root, parent *syntax.Node, key string, value any) ([]syntax.Edit, error) {
+	if edits, ok, e := aliasEdit(src, parent, "insert", key, value, f.style); ok {
 		return edits, e
 	}
 	if parent.Kind != syntax.Object && parent.Kind != syntax.Array {
@@ -160,10 +170,12 @@ func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value an
 	if parent.Style == "flow-pair" {
 		object := parent.Interface().(map[string]any)
 		object[key] = value
-		return (Format{}).Replace(src, root, parent, object)
+		return f.Replace(src, root, parent, object)
 	}
 	style := styleAt(src, parent)
-	template := insertionTemplate(parent, value)
+	style.policy = f.style
+	style = style.overrides()
+	template := insertionTemplate(src, parent, value)
 	if parent.Style == "flow" {
 		return insertFlow(src, parent, key, value, style, template)
 	}
@@ -212,6 +224,9 @@ func (Format) Insert(src []byte, root, parent *syntax.Node, key string, value an
 			leader += "-" + gap
 		}
 	}
+	if strings.ContainsAny(text, "\r\n") && suffix == "" {
+		suffix = nl
+	}
 	return []syntax.Edit{{Start: pos, End: pos, Text: []byte(prefix + leader + text + suffix)}}, nil
 }
 func comma(src []byte, start, end int) int {
@@ -231,7 +246,7 @@ func comma(src []byte, start, end int) int {
 
 // Delete plans removal of a node and its required syntax.
 func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, error) {
-	if edits, ok, e := aliasEdit(target, "delete", "", nil); ok {
+	if edits, ok, e := aliasEdit(src, target, "delete", "", nil, f.style); ok {
 		return edits, e
 	}
 	parent := target.Parent
