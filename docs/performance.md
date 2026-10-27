@@ -83,3 +83,15 @@ TQL is not a streaming processor. Memory usage grows with source size, tree size
 selected targets, and output values. Parsing and traversal can dominate a single
 edit or filter, so improvements to batched updates should not be assumed to improve
 all workloads equally.
+
+## SIMD builds
+
+Go 1.27 can use the experimental SIMD scanners on arm64 and amd64:
+
+```sh
+GOEXPERIMENT=simd make build
+```
+
+Other Go versions and architectures use scalar scanners. On amd64, SIMD also
+requires AVX support. Build with `-tags=purego` to force the scalar implementation.
+The minimum supported Go version remains 1.23.

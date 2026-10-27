@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/vasileknik76/tql/internal/scan"
 )
 
 type token struct {
@@ -26,8 +28,10 @@ func lex(s string) ([]token, error) {
 			continue
 		}
 		if s[i] == '#' {
-			for i < len(s) && s[i] != '\n' {
-				i++
+			if end := strings.IndexByte(s[i:], '\n'); end >= 0 {
+				i += end
+			} else {
+				i = len(s)
 			}
 			continue
 		}
@@ -35,6 +39,12 @@ func lex(s string) ([]token, error) {
 		if s[i] == '"' || s[i] == '\'' {
 			quote := s[i]
 			i++
+			end := i + scan.QuotedString(s[i:], quote, '\\')
+			if end < len(s) && s[end] == quote {
+				ts = append(ts, token{kind: "string", text: strings.Clone(s[i:end]), pos: start})
+				i = end + 1
+				continue
+			}
 			var b strings.Builder
 			closed := false
 			for i < len(s) {

@@ -11,6 +11,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/vasileknik76/tql/internal/scan"
 	"github.com/vasileknik76/tql/syntax"
 )
 
@@ -230,7 +231,29 @@ func (p *parser) number() error {
 
 func (p *parser) string() (string, error) {
 	p.pos++ // opening quote was checked by the caller
+	start := p.pos
+	// Keep short keys in this function; vector setup costs more than their scan.
+	p.pos += scan.JSONStringScalar(p.source[p.pos:min(p.pos+16, len(p.source))])
+	if p.pos-start == 16 {
+		p.pos += scan.JSONString(p.source[p.pos:])
+	}
+	if p.pos == len(p.source) {
+		return "", p.fail("unterminated string")
+	}
+	if p.source[p.pos] == '"' {
+		// Copy once. The tree must own its strings independently of the
+		// caller's mutable source bytes.
+		s := string(p.source[start:p.pos])
+		p.pos++
+		return s, nil
+	}
+	return p.escapedString(start)
+}
+
+func (p *parser) escapedString(start int) (string, error) {
 	var b strings.Builder
+	b.Write(p.source[start:p.pos])
+	run := 0
 	for p.pos < len(p.source) {
 		c := p.source[p.pos]
 		p.pos++
@@ -241,7 +264,15 @@ func (p *parser) string() (string, error) {
 			return "", p.fail("unescaped control character in string")
 		case c != '\\':
 			b.WriteByte(c)
+			run++
+			if run == 16 {
+				end := p.pos + scan.JSONString(p.source[p.pos:])
+				b.Write(p.source[p.pos:end])
+				p.pos = end
+				run = 0
+			}
 		default:
+			run = 0
 			if p.pos == len(p.source) {
 				return "", p.fail("incomplete string escape")
 			}

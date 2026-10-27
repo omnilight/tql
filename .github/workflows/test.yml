@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   go:
-    name: Go ${{ matrix.go }} / ${{ matrix.os }}
+    name: Go ${{ matrix.go }} / ${{ matrix.os }}${{ matrix.simd && ' / SIMD' || '' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -37,6 +37,16 @@ jobs:
           - os: windows-latest
             go: '1.27.x'
             race: false
+          - os: ubuntu-latest
+            go: '1.27.x'
+            race: true
+            simd: true
+          - os: macos-latest
+            go: '1.27.x'
+            race: true
+            simd: true
+    env:
+      GOEXPERIMENT: ${{ matrix.simd && 'simd' || '' }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -52,6 +62,20 @@ jobs:
       - name: Tests and pinned parser suites
         if: '!matrix.race'
         run: go test -cover ./...
+      - name: Forced scalar fallback
+        if: matrix.simd
+        run: go test -tags purego ./...
+      - name: AMD64 fallback without AVX
+        if: matrix.simd && runner.os == 'Linux'
+        env:
+          GODEBUG: cpu.avx=off
+        run: go test ./formats/json ./conformance
+      - name: Fuzz SIMD scanners, parsers, and quoting
+        if: matrix.simd
+        shell: bash
+        run: |
+          go test ./internal/scan -run '^$' -fuzz '^FuzzScanners$' -fuzztime 10s -parallel 2
+          make fuzz-json fuzz-toml fuzz-yaml fuzz-query fuzz-quote FUZZTIME=5s
       - name: Build CLI
         shell: bash
         run: go build -trimpath -o bin/ ./cmd/tql

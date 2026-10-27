@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vasileknik76/tql/internal/scan"
 	"github.com/vasileknik76/tql/syntax"
 )
 
@@ -83,7 +84,8 @@ func Signature(src []byte, n *syntax.Node) string {
 	if n.Start < 0 || n.End > len(src) {
 		return n.Style
 	}
-	text := string(src[n.Start:n.End])
+	// Prefix classification needs at most three bytes, regardless of scalar size.
+	text := string(src[n.Start:min(n.Start+3, n.End)])
 	switch n.Kind {
 	case syntax.String:
 		switch {
@@ -107,7 +109,7 @@ func Signature(src []byte, n *syntax.Node) string {
 		}
 		return "decimal"
 	case syntax.Array, syntax.Object:
-		if strings.ContainsAny(text, "\r\n") {
+		if scan.LineBreak(src[n.Start:n.End]) < n.End-n.Start {
 			return n.Style + "-multiline"
 		}
 	}

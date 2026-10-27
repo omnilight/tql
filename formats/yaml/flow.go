@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/vasileknik76/tql/internal/scan"
 	"github.com/vasileknik76/tql/syntax"
 )
 
@@ -48,9 +49,7 @@ func (f *flow) ws() error {
 			if f.pos > 0 && !strings.ContainsRune(" \t\r\n", rune(f.p.src[f.pos-1])) {
 				return errAt(f.pos, "comment must be separated")
 			}
-			for f.pos < f.limit && f.p.src[f.pos] != '\n' && f.p.src[f.pos] != '\r' {
-				f.pos++
-			}
+			f.pos += scan.LineBreak(f.p.src[f.pos:f.limit])
 			continue
 		}
 		if f.documentMarker() {
@@ -141,6 +140,12 @@ func (f *flow) plain(inFlow bool) (*syntax.Node, error) {
 	var parts []segment
 	var value strings.Builder
 	for f.pos < f.limit {
+		if f.limit-f.pos >= 32 {
+			f.pos += scan.YAMLSyntax(s[f.pos:f.limit])
+			if f.pos == f.limit {
+				break
+			}
+		}
 		c := s[f.pos]
 		if c == '\n' || c == '\r' {
 			if !inFlow {
@@ -221,21 +226,37 @@ func (f *flow) quoted() (*syntax.Node, error) {
 	s := f.p.src
 	q := s[f.pos]
 	f.pos++
-	var b strings.Builder
-	contentEnd := 0
+	content := f.pos
+	escape := q
+	if q == '"' {
+		escape = '\\'
+	}
+	f.pos += scan.QuotedScalar(s[f.pos:min(f.pos+16, f.limit)], q, escape)
+	if f.pos-content == 16 {
+		f.pos += scan.Quoted(s[f.pos:f.limit], q, escape)
+	}
+	if f.pos < f.limit && s[f.pos] == q && (q != '\'' || f.pos+1 == f.limit || s[f.pos+1] != '\'') {
+		value := string(s[content:f.pos])
+		f.pos++
+		return quotedNode(value, start, f.pos, q), nil
+	}
+	buf := append([]byte(nil), s[content:f.pos]...)
+	contentEnd := len(bytes.TrimRight(s[content:f.pos], " \t"))
+	plainRun := 0
 	for f.pos < f.limit {
 		c := s[f.pos]
 		f.pos++
 		if c == q {
 			if q == '\'' && f.pos < f.limit && s[f.pos] == '\'' {
-				b.WriteByte('\'')
-				contentEnd = b.Len()
+				buf = append(buf, '\'')
+				contentEnd = len(buf)
 				f.pos++
 				continue
 			}
-			return &syntax.Node{Kind: syntax.String, Value: b.String(), Start: start, End: f.pos, Style: map[byte]string{'\'': "single", '"': "double"}[q], Meta: map[string]any{"scalarValue": b.String()}}, nil
+			return quotedNode(string(buf), start, f.pos, q), nil
 		}
 		if c == '\n' || c == '\r' {
+			plainRun = 0
 			f.pos--
 			count := f.foldBreak()
 			if f.documentMarker() {
@@ -244,18 +265,19 @@ func (f *flow) quoted() (*syntax.Node, error) {
 			if !f.continuationIndent() {
 				return nil, errAt(f.pos, "insufficient indentation in quoted scalar")
 			}
-			old := b.String()[:contentEnd]
-			b.Reset()
-			b.WriteString(old)
+			// Folding trims trailing whitespace without copying the accumulated
+			// scalar on every line (which would make long strings quadratic).
+			buf = buf[:contentEnd]
 			if count == 1 {
-				b.WriteByte(' ')
+				buf = append(buf, ' ')
 			} else {
-				b.WriteString(strings.Repeat("\n", count-1))
+				buf = append(buf, strings.Repeat("\n", count-1)...)
 			}
-			contentEnd = b.Len()
+			contentEnd = len(buf)
 			continue
 		}
 		if q == '"' && c == '\\' {
+			plainRun = 0
 			if f.pos >= f.limit {
 				return nil, errAt(f.pos, "unfinished escape")
 			}
@@ -263,23 +285,23 @@ func (f *flow) quoted() (*syntax.Node, error) {
 			f.pos++
 			switch c {
 			case '0':
-				b.WriteByte(0)
+				buf = append(buf, 0)
 			case 'a':
-				b.WriteByte(7)
+				buf = append(buf, 7)
 			case 'b':
-				b.WriteByte(8)
+				buf = append(buf, 8)
 			case 't', '\t':
-				b.WriteByte('\t')
+				buf = append(buf, '\t')
 			case 'n':
-				b.WriteByte('\n')
+				buf = append(buf, '\n')
 			case 'v':
-				b.WriteByte(11)
+				buf = append(buf, 11)
 			case 'f':
-				b.WriteByte(12)
+				buf = append(buf, 12)
 			case 'r':
-				b.WriteByte('\r')
+				buf = append(buf, '\r')
 			case 'e':
-				b.WriteByte(27)
+				buf = append(buf, 27)
 			case '\n', '\r':
 				f.pos--
 				count := f.foldBreak()
@@ -290,20 +312,20 @@ func (f *flow) quoted() (*syntax.Node, error) {
 					return nil, errAt(f.pos, "insufficient indentation in quoted scalar")
 				}
 				if count > 1 {
-					b.WriteString(strings.Repeat("\n", count-1))
+					buf = append(buf, strings.Repeat("\n", count-1)...)
 				}
 			case ' ':
-				b.WriteByte(' ')
+				buf = append(buf, ' ')
 			case '"', '/', '\\':
-				b.WriteByte(c)
+				buf = append(buf, c)
 			case 'N':
-				b.WriteRune(0x85)
+				buf = utf8.AppendRune(buf, 0x85)
 			case '_':
-				b.WriteRune(0xa0)
+				buf = utf8.AppendRune(buf, 0xa0)
 			case 'L':
-				b.WriteRune(0x2028)
+				buf = utf8.AppendRune(buf, 0x2028)
 			case 'P':
-				b.WriteRune(0x2029)
+				buf = utf8.AppendRune(buf, 0x2029)
 			case 'x', 'u', 'U':
 				count := 2
 				switch c {
@@ -319,20 +341,39 @@ func (f *flow) quoted() (*syntax.Node, error) {
 				if e != nil || v > utf8.MaxRune || v >= 0xd800 && v <= 0xdfff {
 					return nil, errAt(f.pos, "invalid Unicode escape")
 				}
-				b.WriteRune(rune(v))
+				buf = utf8.AppendRune(buf, rune(v))
 				f.pos += count
 			default:
 				return nil, errAt(f.pos-1, "unknown escape")
 			}
-			contentEnd = b.Len()
+			contentEnd = len(buf)
 			continue
 		}
-		b.WriteByte(c)
+		buf = append(buf, c)
 		if c != ' ' && c != '\t' {
-			contentEnd = b.Len()
+			contentEnd = len(buf)
+		}
+		plainRun++
+		if plainRun == 16 {
+			end := f.pos + scan.Quoted(s[f.pos:f.limit], q, escape)
+			run := s[f.pos:end]
+			buf = append(buf, run...)
+			if trimmed := bytes.TrimRight(run, " \t"); len(trimmed) > 0 {
+				contentEnd = len(buf) - len(run) + len(trimmed)
+			}
+			f.pos = end
+			plainRun = 0
 		}
 	}
 	return nil, errAt(start, "unterminated quoted string")
+}
+
+func quotedNode(value string, start, end int, q byte) *syntax.Node {
+	style := "double"
+	if q == '\'' {
+		style = "single"
+	}
+	return &syntax.Node{Kind: syntax.String, Value: value, Start: start, End: end, Style: style, Meta: map[string]any{"scalarValue": value}}
 }
 func (f *flow) documentMarker() bool {
 	s := f.p.src

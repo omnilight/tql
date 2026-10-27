@@ -7,6 +7,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
+
+	"github.com/vasileknik76/tql/internal/scan"
 )
 
 // Number retains a number's decimal representation without float64 rounding.
@@ -90,7 +93,11 @@ func JSON(v any) (string, error) {
 
 // Quote produces a JSON string literal (Go's quoting permits non-JSON escapes).
 func Quote(s string) string {
+	if utf8.ValidString(s) && scan.QuotedString(s, '"', '\\') == len(s) {
+		return "\"" + s + "\""
+	}
 	var b strings.Builder
+	b.Grow(len(s) + 2)
 	b.WriteByte('"')
 	for _, r := range s {
 		switch r {

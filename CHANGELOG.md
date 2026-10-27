@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add optional Go 1.27 SIMD scanning for JSON, TOML, YAML and query strings on
+  arm64 and amd64, enabled with `GOEXPERIMENT=simd`.
+- Reduce allocations in string parsing, quoting and insertion style selection,
+  and avoid repeated buffer copies when folding multiline YAML strings.
 - Infer table, inline and dotted object conventions when adding TOML values,
   including arrays of tables and nested headers within a selected array element.
 - Add document-local `tql.WithStyle` and CLI generation policies for objects,
