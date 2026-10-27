@@ -28,7 +28,7 @@ make workflow-lint
 ```
 
 These tools may require a newer Go version than the library's Go 1.23 minimum;
-CI runs them with Go 1.26. `make check` runs formatting verification, `go vet`,
+CI runs them with Go 1.27. `make check` runs formatting verification, `go vet`,
 and the race-enabled test suite. `make fuzz FUZZTIME=10s` runs all bounded fuzz
 checks, and `make oracle` runs the TOML differential harness with Python 3.11+.
 

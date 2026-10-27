@@ -7,7 +7,8 @@ bytes. The engine never serializes the entire document to make a local change.
 ```text
 configuration bytes → format parser → source-aware tree
                                             │
-TQL source → lexer and parser → program ──────┘
+TQL source → lexer and parser → program ──────┤
+structured edit operations ──────────────────┘
                                             │
                               format-independent evaluation
                                             │
@@ -27,6 +28,7 @@ TQL source → lexer and parser → program ──────┘
 | Package | Responsibility |
 | --- | --- |
 | `github.com/vasileknik76/tql` | Public API, format registry, execution, transactions, and script state |
+| `edit` | Typed paths and operations, document diff and merge planning, and TQL export |
 | `syntax` | Shared value tree, source ranges, format interface, and edit application |
 | `formats/json`, `formats/toml`, `formats/yaml` | Handwritten parsers and format-specific edit planning |
 | `internal/query` | TQL lexer, parser, and expression evaluation |

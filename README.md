@@ -191,6 +191,7 @@ edit that the format cannot represent returns an error. See
 - [Language reference](docs/syntax.md)
 - [Scripting guide](docs/scripts.md)
 - [Go API and custom formats](docs/library.md)
+- [Structured editing, diff, and merge from Go](docs/edit.md)
 - [Architecture and source preservation](docs/architecture.md)
 - [Performance](docs/performance.md)
 - [File integration tests](docs/integration-tests.md)
