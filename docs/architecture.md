@@ -150,7 +150,8 @@ A loop therefore continues to refer to its original selected nodes after reparsi
 
 A program can be saved with `MarshalBinary` and loaded with `LoadProgram`; the
 image is versioned and validated. `Disassemble` and `Assemble` expose the same
-bytecode as canonical text for debugging and review. See
+bytecode as canonical text for debugging and review. See the
+[bytecode VM guide](bytecode-vm.md) for execution and
 [bytecode format](bytecode-format.md) for the image, limits and loader contract.
 
 ## Cost and ownership

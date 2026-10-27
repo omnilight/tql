@@ -36,6 +36,11 @@ func TestPracticalRecipes(t *testing.T) {
 			format:   "json",
 			verify:   `.version == "1.5.0" and engines.node == ">=22" and scripts.test == "node --test --experimental-test-coverage" and scripts.prepublishOnly == "npm test && npm run build" and not has(scripts, "prepublish") and scripts.build == "node scripts/build.mjs"`,
 		},
+		"openapi31": {
+			filename: "openapi.yaml",
+			format:   "yaml",
+			verify:   `openapi == "3.1.0" and components.schemas.Pet.properties.id.exclusiveMinimum == 1 and not has(components.schemas.Pet.properties.id, "minimum") and components.schemas.Pet.properties.name.type == ["string", "null"] and not has(components.schemas.Pet.properties.name, "nullable") and components.schemas.Pet.properties.score.exclusiveMaximum == 100 and not has(components.schemas.Pet.properties.score, "maximum") and components.schemas.Error.properties.message.type == ["string", "null"]`,
+		},
 	}
 	root := filepath.Join("examples", "recipes")
 	entries, err := os.ReadDir(root)
@@ -110,4 +115,27 @@ func readRecipeFile(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestOpenAPI31Check(t *testing.T) {
+	source := readRecipeFile(t, filepath.Join("examples", "recipes", "openapi31", "openapi.yaml"))
+	script := readRecipeFile(t, filepath.Join("examples", "recipes", "openapi31", "check.tql"))
+	program, err := tql.Compile(string(script))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := tql.Parse(source, "yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := document.Execute(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Changed {
+		t.Fatal("read-only check changed the document")
+	}
+	if len(result.Values) != 5 {
+		t.Fatalf("findings = %d, want 5: %#v", len(result.Values), result.Values)
+	}
 }

@@ -4,6 +4,7 @@
 /formats/*/testdata/fuzz/** -text
 /conformance/testdata/** -text -whitespace
 /examples/config.* -text
+/examples/bytecode/*.tqlc -text
 /examples/recipes/**/*.toml -text
 /examples/recipes/**/*.yaml -text
 /examples/recipes/**/*.json -text

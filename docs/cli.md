@@ -95,6 +95,7 @@ YAML documents.
 | `--program FILE` | Load a compiled bytecode image (`.tqlc`) |
 | `--assemble FILE` | Assemble bytecode text (`.tqla`) |
 | `--emit-bytecode FILE` | Write a compiled image and exit |
+| `--emit-assembly FILE` | Write canonical bytecode assembly and exit (`-` for stdout) |
 | `--disassemble` | Print canonical bytecode assembly and exit |
 | `--arg NAME=VALUE` | Bind a string input parameter; repeat for different names |
 | `--argjson NAME=JSON` | Bind one JSON value as an input parameter |
@@ -124,6 +125,7 @@ tql --query-file migrate.tql --emit-bytecode migrate.tqlc
 tql --program migrate.tqlc config.toml
 tql --program migrate.tqlc --disassemble
 tql --assemble migrate.tqla --emit-bytecode migrate.tqlc
+tql --query-file migrate.tql --emit-assembly migrate.tqla
 ```
 
 Explicit per-kind collection flags override `--style` regardless of order. Style
@@ -221,11 +223,14 @@ Inspect and edit the textual form:
 tql --program migrate.tqlc --disassemble > migrate.tqla
 tql --assemble migrate.tqla config.toml
 tql --assemble migrate.tqla --emit-bytecode migrate.tqlc
+tql --query-file migrate.tql --emit-assembly migrate.tqla
 ```
 
 The disassembly is canonical and can be assembled back without losing behavior.
-`--disassemble` and `--emit-bytecode` do not read a document; `--emit-bytecode`
-requires a file path and does not write to stdout.
+`--disassemble`, `--emit-assembly` and `--emit-bytecode` do not read a document.
+`--emit-bytecode` requires a file path and does not write to stdout;
+`--emit-assembly` accepts `-` for stdout. A complete walkthrough of the three
+forms is in [examples/bytecode](../examples/bytecode/README.md).
 
 ## Input parameters
 

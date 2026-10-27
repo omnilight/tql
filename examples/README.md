@@ -32,6 +32,19 @@ The migration adds 10 to the enabled server's port, updates selected users, and
 counts numeric nodes. With `--values`, it prints the count; without it, it prints
 the updated document.
 
+## Bytecode example
+
+The [`bytecode`](bytecode/README.md) directory shows the same program as source
+(`.tql`), canonical assembly (`.tqla`), and a versioned image (`.tqlc`), with
+commands to compile, run, disassemble, and assemble it.
+
+## jq ports
+
+The [`jq`](jq/README.md) directory translates a few well-known jq programs to
+TQL and records the patterns that do not fit yet: selection and projection,
+recursive traversal, wildcard updates, recursive field removal, and simple
+folds.
+
 ## Configuration recipes
 
 For migrations against real configuration formats, see the

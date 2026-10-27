@@ -2,6 +2,7 @@ package tql
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 )
@@ -203,4 +204,51 @@ func BenchmarkASTScriptNestedReadLoops(b *testing.B) {
 
 func BenchmarkVMScriptNestedReadLoops(b *testing.B) {
 	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { for $y in $.a[] { $x * $y } }`, true)
+}
+
+func openAPISource(schemas int) string {
+	var b strings.Builder
+	b.WriteString(`{"openapi":"3.0.3","info":{"title":"bench","version":"1"},"paths":{},"components":{"schemas":{`)
+	for i := 0; i < schemas; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `"S%d":{"type":"object","properties":{"id":{"type":"integer","minimum":0,"exclusiveMinimum":true},"name":{"type":"string","nullable":true}}}`, i)
+	}
+	b.WriteString(`}}}`)
+	return b.String()
+}
+
+func openAPIScript(b *testing.B) string {
+	b.Helper()
+	data, err := os.ReadFile("examples/recipes/openapi31/migrate.tql")
+	if err != nil {
+		b.Fatal(err)
+	}
+	return string(data)
+}
+
+func BenchmarkASTOpenAPI31(b *testing.B) {
+	benchmarkEngine(b, openAPISource(50), openAPIScript(b), false)
+}
+
+func BenchmarkVMOpenAPI31(b *testing.B) {
+	benchmarkEngine(b, openAPISource(50), openAPIScript(b), true)
+}
+
+func openAPICheckScript(b *testing.B) string {
+	b.Helper()
+	data, err := os.ReadFile("examples/recipes/openapi31/check.tql")
+	if err != nil {
+		b.Fatal(err)
+	}
+	return string(data)
+}
+
+func BenchmarkASTOpenAPI31Check(b *testing.B) {
+	benchmarkEngine(b, openAPISource(50), openAPICheckScript(b), false)
+}
+
+func BenchmarkVMOpenAPI31Check(b *testing.B) {
+	benchmarkEngine(b, openAPISource(50), openAPICheckScript(b), true)
 }

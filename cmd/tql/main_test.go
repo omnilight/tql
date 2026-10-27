@@ -214,6 +214,22 @@ func TestCLIBytecode(t *testing.T) {
 	if err := os.WriteFile(asmFile, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if code, out, err := invoke([]string{"--query-file", queryFile, "--emit-assembly", asmFile}, ""); code != 0 || out != "" {
+		t.Fatalf("emit assembly: %d %q %s", code, out, err)
+	}
+	written, readErr := os.ReadFile(asmFile)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(written) != text {
+		t.Fatal("emit-assembly differs from disassemble")
+	}
+	if code, out, err := invoke([]string{"--query-file", queryFile, "--emit-assembly", "-"}, ""); code != 0 || out != text {
+		t.Fatalf("emit assembly stdout: %d %q %s", code, out, err)
+	}
+	if code, _, _ := invoke([]string{"--query-file", queryFile, "--emit-assembly", asmFile, "--emit-bytecode", imageFile}, ""); code != 2 {
+		t.Fatal("conflicting output modes accepted")
+	}
 	if code, out, err := invoke([]string{"--assemble", asmFile, "-f", "json"}, `{"a":[1,2]}`); code != 0 || out != `{"a":[2,3]}` {
 		t.Fatalf("assemble: %d %q %s", code, out, err)
 	}

@@ -1,0 +1,6 @@
+# jq: reduce .nums[] as $x (0; . + $x)
+let $sum = 0;
+for $x in nums[] {
+    $sum += $x;
+}
+$sum

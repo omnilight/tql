@@ -50,6 +50,7 @@ Options:
       --program FILE    Load a compiled bytecode image (.tqlc)
       --assemble FILE   Assemble bytecode text (.tqla)
       --emit-bytecode FILE Write a compiled image and exit
+      --emit-assembly FILE Write bytecode assembly and exit (- for stdout)
       --disassemble     Print bytecode assembly and exit
       --arg NAME=VALUE  Bind a string parameter (repeatable)
       --argjson NAME=JSON Bind a JSON parameter (repeatable)
@@ -64,7 +65,7 @@ func main() { os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
 func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	fs := flag.NewFlagSet("tql", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	var format, queryFile, programFile, assembleFile, emitBytecode string
+	var format, queryFile, programFile, assembleFile, emitBytecode, emitAssembly string
 	var disassemble bool
 	var parameters parameterFlags
 	var style tql.Style
@@ -90,6 +91,7 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	fs.StringVar(&programFile, "program", "", "compiled bytecode image")
 	fs.StringVar(&assembleFile, "assemble", "", "bytecode assembly file")
 	fs.StringVar(&emitBytecode, "emit-bytecode", "", "write compiled bytecode image")
+	fs.StringVar(&emitAssembly, "emit-assembly", "", "write bytecode assembly")
 	fs.BoolVar(&disassemble, "disassemble", false, "print bytecode assembly")
 	fs.Func("arg", "string parameter NAME=VALUE", func(s string) error { return parameters.set(s, false) })
 	fs.Func("argjson", "JSON parameter NAME=JSON", func(s string) error { return parameters.set(s, true) })
@@ -129,11 +131,17 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	if programSources > 1 {
 		return fail(fmt.Errorf("--query-file, --program and --assemble are mutually exclusive"))
 	}
-	if disassemble && emitBytecode != "" {
-		return fail(fmt.Errorf("--disassemble and --emit-bytecode cannot be combined"))
+	outputModes := 0
+	for _, enabled := range []bool{disassemble, emitAssembly != "", emitBytecode != ""} {
+		if enabled {
+			outputModes++
+		}
 	}
-	if (disassemble || emitBytecode != "") && (inPlace || check || values) {
-		return fail(fmt.Errorf("--disassemble and --emit-bytecode cannot be combined with execution flags"))
+	if outputModes > 1 {
+		return fail(fmt.Errorf("--disassemble, --emit-assembly and --emit-bytecode are mutually exclusive"))
+	}
+	if outputModes > 0 && (inPlace || check || values) {
+		return fail(fmt.Errorf("output modes cannot be combined with execution flags"))
 	}
 	if emitBytecode == "-" {
 		return fail(fmt.Errorf("--emit-bytecode requires a file path"))
@@ -173,6 +181,17 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	}
 	if disassemble {
 		if _, err := fmt.Fprint(out, p.Disassemble()); err != nil {
+			return fail(err)
+		}
+		return 0
+	}
+	if emitAssembly != "" {
+		text := p.Disassemble()
+		if emitAssembly == "-" {
+			if _, err := fmt.Fprint(out, text); err != nil {
+				return fail(err)
+			}
+		} else if err := writeFileAtomic(emitAssembly, []byte(text), 0o644); err != nil {
 			return fail(err)
 		}
 		return 0

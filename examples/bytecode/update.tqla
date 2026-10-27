@@ -1,0 +1,43 @@
+# TQL bytecode v1
+.version 1
+.const K0 text "="
+.const K1 json 9090
+.const K2 text "name"
+.const K3 text "=="
+.const K4 json "alice"
+.const K5 text "="
+.const K6 json true
+.const K7 text "??="
+.const K8 json 30
+.match M0 key=K2 op=K3 value=K4
+.path P0
+.step key "server"
+.step key "port"
+.path P1
+.step key "users"
+.step match M0
+.step key "enabled"
+.path P2
+.step key "server"
+.step key "timeout"
+.target T0 path root=false base=-1 path=P0
+.target T1 path root=false base=-1 path=P1
+.target T2 path root=false base=-1 path=P2
+.scope S0
+.code C0 "main" 0
+.stmt 1
+STMT_ENTER 1
+TICK
+ASSIGN_CONST K0 T0 K1
+STMT_LEAVE
+.stmt 2
+STMT_ENTER 2
+TICK
+ASSIGN_CONST K5 T1 K6
+STMT_LEAVE
+.stmt 3
+STMT_ENTER 3
+TICK
+ASSIGN_CONST K7 T2 K8
+STMT_LEAVE
+HALT

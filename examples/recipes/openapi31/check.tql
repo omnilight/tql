@@ -1,0 +1,14 @@
+# Report schema constructs that the migration would change.
+for $node in walk(components.schemas) {
+    if type($node) == "object" {
+        if has($node, "nullable") {
+            {path: path($node), rule: "nullable"};
+        }
+        if has($node, "exclusiveMinimum") and type($node.exclusiveMinimum) == "boolean" {
+            {path: path($node), rule: "exclusiveMinimum"};
+        }
+        if has($node, "exclusiveMaximum") and type($node.exclusiveMaximum) == "boolean" {
+            {path: path($node), rule: "exclusiveMaximum"};
+        }
+    }
+}

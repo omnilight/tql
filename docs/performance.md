@@ -10,24 +10,21 @@ include that work unless a benchmark explicitly measures a lower-level operation
 VM removes per-expression interface dispatch and resolves lexical variables to
 slots; parsing, format editing, reparsing and semantic verification are unchanged.
 
-On an Apple M3 Pro, macOS arm64, Go 1.27.1 (2026-10-27), with
-`go test -run '^$' -bench 'Benchmark(AST|VM)' -benchmem -benchtime=500ms -count=5 .`:
+On an Apple M3 Pro, macOS arm64, Go 1.27.1:
 
-| Workload | AST | VM | Change | Allocations |
-| --- | ---: | ---: | ---: | ---: |
-| Compiled read, 1,000 services | ~100–280 µs | ~16 µs | ~85–90% faster | 7,015 → 4 |
-| Filter and project, 1,000 services | ~100 µs | ~32 µs | ~68% faster | 7,044 → 16 |
-| Read loop, 10 items | ~5.5 µs | ~1.5 µs | ~73% faster | 183 → 25 |
-| Nested read loops, 10 × 10 | ~60 µs | ~10 µs | ~83% faster | 1,689 → 144 |
-| `walk` update | ~20 µs | ~14 µs | ~30% faster | 456 → 298 |
-| Mutation loop, 128 items | ~2–3.5 ms | ~2–3.4 ms | neutral | 62,651 → 61,105 |
-| One-shot edit, 1,000 services | ~1.3–2.2 ms | ~1.3–2.3 ms | neutral | ~40,100 |
+- compiled reads are about 85–90% faster than the AST engine, with 4 allocations
+  per execution;
+- filter/project pipelines are about 68% faster;
+- read-only and nested loops are about 73–83% faster;
+- `walk` updates are about 30% faster;
+- mutation loops and one-shot edits are neutral because document parsing,
+  editing, reparsing and verification dominate;
+- a read-only OpenAPI 3.0→3.1 schema check is about 45% faster on the VM, while
+  applying the same migration is neutral because the edit engine dominates.
 
-Expression-heavy work improves; edit-dominated work is neutral because document
-parsing and verification dominate. `length(string)` also has a SIMD rune-count
-fast path on Go 1.27+ with `GOEXPERIMENT=simd`, with a scalar fallback. These are measurements of one machine and one
-revision, not guarantees. See [bytecode performance](bytecode-performance.md) for
-the workload definitions, commands and SIMD notes.
+Exact workloads, commands, machine noise and SIMD results are in
+[bytecode performance](bytecode-performance.md). `length(string)` has a SIMD
+rune-count fast path on Go 1.27+ with a scalar fallback.
 
 ## Edit batching
 

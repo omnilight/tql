@@ -112,6 +112,7 @@ idempotent migration scripts, and exact expected output:
 | [Go `.golangci.yaml`](examples/recipes/go-linters/README.md) | Enable missing linters without duplicates and adjust the timeout |
 | [Compose `compose.yaml`](examples/recipes/compose-rollout/README.md) | Update selected services and add logging limits using local document style |
 | [Node `package.json`](examples/recipes/node-release/README.md) | Update release metadata, engines, and scripts; remove an obsolete hook |
+| [OpenAPI 3.0 → 3.1](examples/recipes/openapi31/README.md) | Migrate nullable and exclusive schema bounds while preserving layout |
 
 For example, preview the Python migration against the included fixture:
 
@@ -171,14 +172,16 @@ See [script parameters](docs/scripts.md#input-parameters) for defaults and scope
 tql --query-file migration.tql --emit-bytecode migration.tqlc
 tql --program migration.tqlc config.yaml
 tql --program migration.tqlc --disassemble
+tql --query-file migration.tql --emit-assembly migration.tqla
 tql --assemble migration.tqla config.yaml
 ```
 
 A bytecode image is versioned and validated on load. Disassembly is canonical
 and can be assembled back; it is a debugging and review format, not a required
-deployment step. The Go API adds `Program.MarshalBinary`, `tql.LoadProgram`,
-`Program.Disassemble` and `tql.Assemble`; see the
-[bytecode design](docs/bytecode-vm.md) and
+deployment step. A complete `.tql`/`.tqla`/`.tqlc` walkthrough is in
+[examples/bytecode](examples/bytecode/README.md). The Go API adds
+`Program.MarshalBinary`, `tql.LoadProgram`, `Program.Disassemble` and
+`tql.Assemble`; see the [bytecode design](docs/bytecode-vm.md) and
 [format notes](docs/bytecode-format.md).
 
 ## Use the Go library

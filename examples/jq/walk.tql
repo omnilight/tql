@@ -1,0 +1,6 @@
+# jq: .. | objects | select(has("name")) | .name
+for $node in walk(.) {
+    if type($node) == "object" and has($node, "name") {
+        $node.name;
+    }
+}
