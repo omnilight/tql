@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.2.0
+
 - Add a structured Go editing API with typed paths, atomic `Set`/`Del` patches,
   document diff and merge planning, and optional TQL script export.
 - Extend the TOML parser and editor to TOML 1.1, including multiline inline
