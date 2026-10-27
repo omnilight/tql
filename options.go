@@ -85,9 +85,13 @@ func executionOptions(options []ExecOption) (execOptions, error) {
 }
 
 func (o execOptions) bindings(p *Program) (map[string]*binding, error) {
+	if p == nil || p.code == nil {
+		return nil, errProgram
+	}
+	params := p.code.Params
 	if len(o.params) > 0 {
-		declared := make(map[string]bool, len(p.program.Parameters))
-		for _, param := range p.program.Parameters {
+		declared := make(map[string]bool, len(params))
+		for _, param := range params {
 			declared[param.Name] = true
 		}
 		unknown := make([]string, 0)
@@ -101,8 +105,8 @@ func (o execOptions) bindings(p *Program) (map[string]*binding, error) {
 			return nil, fmt.Errorf("unknown parameter %q", unknown[0])
 		}
 	}
-	values := make(map[string]*binding, len(p.program.Parameters))
-	for _, param := range p.program.Parameters {
+	values := make(map[string]*binding, len(params))
+	for _, param := range params {
 		value, supplied := o.params[param.Name]
 		if !supplied {
 			if !param.HasDefault {

@@ -258,3 +258,13 @@ func (r *scriptRuntime) iterate(s query.Statement, res *Result) (control, error)
 	}
 	return normal, nil
 }
+
+// runtimeState is the ownership and reference surface shared by the AST
+// interpreter and the bytecode VM. Document edits use it without depending on
+// either execution engine.
+type runtimeState interface {
+	root(*binding) *syntax.Node
+	value(*binding) *syntax.Node
+	owner(*syntax.Node) (*binding, error)
+	rebase(*binding, string, address)
+}

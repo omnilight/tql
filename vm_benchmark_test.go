@@ -1,0 +1,193 @@
+package tql
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
+
+func benchDocument(b *testing.B, source string) *Document {
+	b.Helper()
+	doc, err := Parse([]byte(source), "json")
+	if err != nil {
+		b.Fatal(err)
+	}
+	return doc
+}
+
+func cloneDocument(d *Document) *Document {
+	return &Document{source: d.source, root: d.root, format: d.format}
+}
+
+func benchServices() string {
+	var source strings.Builder
+	source.WriteString(`{"services":[`)
+	for i := 0; i < 1000; i++ {
+		if i > 0 {
+			source.WriteByte(',')
+		}
+		fmt.Fprintf(&source, `{"name":"service-%d","port":%d,"enabled":true}`, i, 8000+i)
+	}
+	source.WriteString(`]}`)
+	return source.String()
+}
+
+func benchmarkEngine(b *testing.B, source, program string, vm bool) {
+	base := benchDocument(b, source)
+	p, err := Compile(program)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		doc := cloneDocument(base)
+		if vm {
+			if _, err := doc.executeVM(p, false, execOptions{}); err != nil {
+				b.Fatal(err)
+			}
+		} else {
+			if _, err := doc.executeAST(p, false, execOptions{}); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func BenchmarkASTCompiledRead(b *testing.B) {
+	benchmarkEngine(b, benchServices(), `services[name == "service-500"].port`, false)
+}
+
+func BenchmarkVMCompiledRead(b *testing.B) {
+	benchmarkEngine(b, benchServices(), `services[name == "service-500"].port`, true)
+}
+
+func BenchmarkASTScriptFilter(b *testing.B) {
+	benchmarkEngine(b, benchServices(), `services[] | select(.enabled) | .port`, false)
+}
+
+func BenchmarkVMScriptFilter(b *testing.B) {
+	benchmarkEngine(b, benchServices(), `services[] | select(.enabled) | .port`, true)
+}
+
+func BenchmarkASTScriptForLoop(b *testing.B) {
+	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8]}`, `for $x in a[] { $x += 1 } a`, false)
+}
+
+func BenchmarkVMScriptForLoop(b *testing.B) {
+	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8]}`, `for $x in a[] { $x += 1 } a`, true)
+}
+
+func BenchmarkASTScriptWalk(b *testing.B) {
+	benchmarkEngine(b, `{"a":{"b":[1,2,3],"c":{"d":4}}}`, `for $x in walk(.) { if type($x) == "number" { $x += 1 } } a`, false)
+}
+
+func BenchmarkVMScriptWalk(b *testing.B) {
+	benchmarkEngine(b, `{"a":{"b":[1,2,3],"c":{"d":4}}}`, `for $x in walk(.) { if type($x) == "number" { $x += 1 } } a`, true)
+}
+
+func BenchmarkASTOneShotEdit(b *testing.B) {
+	source := []byte(benchServices())
+	p, err := Compile(`services[500].port = 9999`)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		doc, e := Parse(source, "json")
+		if e != nil {
+			b.Fatal(e)
+		}
+		if _, e = doc.executeAST(p, false, execOptions{}); e != nil {
+			b.Fatal(e)
+		}
+	}
+}
+
+func BenchmarkVMOneShotEdit(b *testing.B) {
+	source := []byte(benchServices())
+	p, err := Compile(`services[500].port = 9999`)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		doc, e := Parse(source, "json")
+		if e != nil {
+			b.Fatal(e)
+		}
+		if _, e = doc.executeVM(p, false, execOptions{}); e != nil {
+			b.Fatal(e)
+		}
+	}
+}
+
+func BenchmarkCompileProgram(b *testing.B) {
+	const source = `let $n = 0; for $x in a[] { $x += 1; $n += 1 } $n`
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := Compile(source); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLoadProgram(b *testing.B) {
+	p, err := Compile(`let $n = 0; for $x in a[] { $x += 1; $n += 1 } $n`)
+	if err != nil {
+		b.Fatal(err)
+	}
+	image, err := p.MarshalBinary()
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := LoadProgram(image); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkDisassembleProgram(b *testing.B) {
+	p, err := Compile(`let $n = 0; for $x in a[] { $x += 1; $n += 1 } $n`)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if p.Disassemble() == "" {
+			b.Fatal("empty disassembly")
+		}
+	}
+}
+
+func BenchmarkAssembleProgram(b *testing.B) {
+	p, err := Compile(`let $n = 0; for $x in a[] { $x += 1; $n += 1 } $n`)
+	if err != nil {
+		b.Fatal(err)
+	}
+	text := p.Disassemble()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		if _, err := Assemble(text); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkASTScriptReadLoop(b *testing.B) {
+	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { $x * 2 }`, false)
+}
+
+func BenchmarkVMScriptReadLoop(b *testing.B) {
+	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { $x * 2 }`, true)
+}
+
+func BenchmarkASTScriptNestedReadLoops(b *testing.B) {
+	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { for $y in $.a[] { $x * $y } }`, false)
+}
+
+func BenchmarkVMScriptNestedReadLoops(b *testing.B) {
+	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { for $y in $.a[] { $x * $y } }`, true)
+}

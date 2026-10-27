@@ -65,6 +65,8 @@ go build -ldflags '-X main.version=0.1.0' -o bin/tql ./cmd/tql
 ```text
 tql [options] 'query' [file|-]
 tql [options] --query-file program.tql [file|-]
+tql [options] --program program.tqlc [file|-]
+tql [options] --assemble program.tqla [file|-]
 ```
 
 Put all flags before the first positional argument. Quote the query as a single
@@ -90,6 +92,10 @@ YAML documents.
 | `--values` | Print read results even when the program contains mutations |
 | `--check` | Print and write nothing; report whether source bytes would change |
 | `--query-file FILE` | Read the TQL program from a file |
+| `--program FILE` | Load a compiled bytecode image (`.tqlc`) |
+| `--assemble FILE` | Assemble bytecode text (`.tqla`) |
+| `--emit-bytecode FILE` | Write a compiled image and exit |
+| `--disassemble` | Print canonical bytecode assembly and exit |
 | `--arg NAME=VALUE` | Bind a string input parameter; repeat for different names |
 | `--argjson NAME=JSON` | Bind one JSON value as an input parameter |
 | `--params-file FILE` | Read input parameters from a JSON object; explicit flags override it |
@@ -112,6 +118,12 @@ tql -i 'server.port = 9090' config.toml
 
 # Return read values after an edit.
 tql --values 'server.port = 9090; server.port' config.toml
+
+# Compile once, then run the image or inspect its assembly.
+tql --query-file migrate.tql --emit-bytecode migrate.tqlc
+tql --program migrate.tqlc config.toml
+tql --program migrate.tqlc --disassemble
+tql --assemble migrate.tqla --emit-bytecode migrate.tqlc
 ```
 
 Explicit per-kind collection flags override `--style` regardless of order. Style
@@ -188,6 +200,32 @@ tql --values --query-file examples/migrate.tql config.toml
 The whole script, including every loop iteration, is one transaction. See the
 [scripting guide](scripts.md) for variables, control flow, and tree traversal, or
 the [language reference](syntax.md) for expression syntax.
+
+## Compiled bytecode
+
+Compile a script once and reuse the image:
+
+```sh
+tql --query-file migrate.tql --emit-bytecode migrate.tqlc
+tql --program migrate.tqlc config.toml
+```
+
+`--program` reads the versioned image produced by this build. A version or
+checksum mismatch is an error; recompile the script with the same TQL version.
+The image contains the program, parameter metadata and debug names, never the
+document or the script text.
+
+Inspect and edit the textual form:
+
+```sh
+tql --program migrate.tqlc --disassemble > migrate.tqla
+tql --assemble migrate.tqla config.toml
+tql --assemble migrate.tqla --emit-bytecode migrate.tqlc
+```
+
+The disassembly is canonical and can be assembled back without losing behavior.
+`--disassemble` and `--emit-bytecode` do not read a document; `--emit-bytecode`
+requires a file path and does not write to stdout.
 
 ## Input parameters
 

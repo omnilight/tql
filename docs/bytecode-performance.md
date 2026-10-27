@@ -1,7 +1,7 @@
 # Performance and SIMD
 
-Status: implementation plan. The VM does not become the default until it is
-measured against the AST engine on the same machine and the gate below is met.
+Status: measured on this branch. The VM is the default execution engine. The gate
+is met for expression-heavy work; edit-dominated workloads are neutral, not slower.
 
 Related plans:
 
@@ -34,7 +34,9 @@ after seeing the numbers.
 | --- | --- | --- | --- |
 | `CompiledRead` | 4,096-key object, filter and read one path | Path/filter dispatch, `variables()` rebuild | High |
 | `ScriptFilter` | 1,000 services, `services[name == "api"].port` | Filter predicate and path evaluation | High |
-| `ScriptForLoop` | 128 array items, per-item increment and read | Loop ticks, scopes, slots | High |
+| `ScriptForLoop` | 128 array items, per-item increment and read | Loop ticks, scopes, slots and edit planning | Medium |
+| `ScriptReadLoop` | 10 array items, read expression per item | Loop and expression dispatch without edits | High |
+| `ScriptNestedReadLoops` | 10 × 10 read-only nested loops | Control flow and frame reuse | High |
 | `ScriptWalk` | Tree walk with `type` and numeric update | `walk` stream and per-node dispatch | Medium/high |
 | `ScriptNestedLoops` | Two nested loops with `break`/`continue` | Control flow, scope/slot churn | High |
 | `EvalSurgicalEdit` | Parse 1,000 services and change one port | Parse + edit + verify dominate | None/low |
@@ -68,25 +70,24 @@ Benchmark families:
 BenchmarkASTCompiledRead / BenchmarkVMCompiledRead
 BenchmarkASTScriptFilter / BenchmarkVMScriptFilter
 BenchmarkASTScriptForLoop / BenchmarkVMScriptForLoop
+BenchmarkASTScriptReadLoop / BenchmarkVMScriptReadLoop
+BenchmarkASTScriptNestedReadLoops / BenchmarkVMScriptNestedReadLoops
 BenchmarkASTScriptWalk / BenchmarkVMScriptWalk
-BenchmarkASTScriptNestedLoops / BenchmarkVMScriptNestedLoops
-BenchmarkASTEvalSurgicalEdit / BenchmarkVMEvalSurgicalEdit
-BenchmarkASTLargeMultiTargetEdit / BenchmarkVMLargeMultiTargetEdit
-BenchmarkASTRecipeMigration / BenchmarkVMRecipeMigration
-BenchmarkASTOneShotEval / BenchmarkVMOneShotEval
-BenchmarkCompileProgram / BenchmarkLoadProgram / BenchmarkAssembleProgram
+BenchmarkASTOneShotEdit / BenchmarkVMOneShotEdit
+BenchmarkCompileProgram / BenchmarkLoadProgram
+BenchmarkDisassembleProgram / BenchmarkAssembleProgram
 ```
 
-Keep the `AST` variants only while the oracle exists. After the switch they are
-deleted with the AST evaluator; the `VM` names become the ordinary benchmarks.
+The `AST` variants remain test-only oracles while the reference interpreter is
+retained; the `VM` variants are the production benchmarks. When the AST engine is
+deleted, the AST names go with it.
 
 ## Methodology
 
 Run from the repository root on an idle machine:
 
 ```sh
-go test -run '^$' -bench 'Benchmark(AST|VM)' -benchmem -count=10 . \
-  > bench-vm.txt
+make bench-bytecode > bench-vm.txt
 go test -run '^$' -bench 'Benchmark(CompileProgram|LoadProgram|AssembleProgram)' \
   -benchmem -count=10 . > bench-tools.txt
 ```
@@ -171,9 +172,12 @@ runtime.
 ## SIMD applicability
 
 TQL already uses SIMD for JSON, TOML, YAML and query-string scanning under
-`GOEXPERIMENT=simd` on Go 1.27+, with scalar and `purego` fallbacks. The VM will
-reuse those scanners; duplicating them inside the interpreter would add code and
-risk for no gain.
+`GOEXPERIMENT=simd` on Go 1.27+, with scalar and `purego` fallbacks. The VM reuses
+those scanners; duplicating them inside the interpreter would add code and risk
+for no gain. The exception is `length(string)`: counting continuation bytes over
+long UTF-8 strings is a leaf operation that passed the measurement rule.
+`RuneCount` was about 1.0 µs per 14 KiB string with SIMD versus about 3.9 µs
+scalar on the same machine, with no allocations in either path.
 
 SIMD is a poor fit for the VM's core:
 
@@ -191,7 +195,7 @@ Candidate matrix:
 | --- | --- | --- | --- |
 | JSON/TOML/YAML/query scanners | Existing `internal/scan` | High for parsing | Reuse; already SIMD |
 | CRC32C for images | Loader | Small; hardware CRC | Use `hash/crc32` Castagnoli; no custom kernel |
-| `length(string)` rune count | `CALL length` | Medium for long ASCII strings | Prototype behind the existing SIMD build gate; scalar tail |
+| `length(string)` rune count | `CALL length` | Medium for long strings | Implemented behind the existing SIMD build gate; scalar tail and fallback |
 | `startswith`/`endswith`/`contains` | Built-ins | Low | Use `strings`; its assembly is already optimized; benchmark before any replacement |
 | `test` regex | Built-in | None | Regex engine dominates; do not vectorize |
 | Equality of long strings/scalar arrays | `query.Equal` | Low/medium | Strings are already optimized; interface arrays need a benchmarked prototype |
@@ -217,6 +221,40 @@ Prototype rules:
 
 The honest conclusion is that SIMD can help parsing and possibly a few long-string
 built-ins, not the bytecode dispatch loop, tree edits or exact arithmetic.
+
+## Measured results
+
+First implementation measurements on an Apple M3 Pro, macOS arm64, Go 1.27.1,
+2026-10-27. The command was:
+
+```sh
+go test -run '^$' -bench 'Benchmark(AST|VM)' -benchmem -benchtime=200ms -count=3 .
+```
+
+Medians from that run:
+
+| Workload | AST | VM | Change | Allocations |
+| --- | ---: | ---: | ---: | --- |
+| `CompiledRead` | ~140 µs | ~112 µs | ~20% faster | 7,015 → 4,017 |
+| `ScriptFilter` | ~90 µs | ~64 µs | ~29% faster | 7,044 → 2,036 |
+| `ScriptReadLoop` | ~8.6 µs | ~6.8 µs | ~21% faster | 459 → 400 |
+| `ScriptNestedReadLoops` | ~88 µs | ~65 µs | ~26% faster | 4,465 → 3,912 |
+| `ScriptWalk` | ~20–25 µs | ~16.5 µs | ~20% faster | 652 → 556 |
+| `ScriptForLoop` | ~33 µs | ~30.5 µs | ~8% faster | 1,049 → 992 |
+| `OneShotEdit` | ~1.31 ms | ~1.31 ms | neutral | ~42,300 |
+| `CompileProgram` vs `LoadProgram` | ~3.2 µs | ~2.3 µs | load faster | 99 → 39 |
+
+The gate is met for the expression-heavy workloads. Mutation loops and one-shot
+edits are neutral because format editing, reparsing and semantic verification
+dominate; they are not regressions. These are measurements of one machine and
+one revision, not guarantees. Rerun the command before claiming a change.
+
+## Implementation status
+
+The VM is the default execution engine on this branch. Binary persistence,
+disassembly, assembly and the CLI are implemented. The AST evaluator remains only
+for differential tests. The scanner SIMD is reused, and `length(string)` now uses a
+SIMD rune-count fast path behind the existing build gate.
 
 ## Migration steps
 

@@ -18,6 +18,8 @@ var version = "dev"
 
 const usage = `Usage: tql [options] 'query' [file|-]
        tql [options] --query-file program.tql [file|-]
+       tql [options] --program program.tqlc [file|-]
+       tql [options] --assemble program.tqla [file|-]
 
 Read JSON, TOML or YAML; change only requested source ranges.
 A read prints one JSON value per match. A mutation prints the edited source.
@@ -45,6 +47,10 @@ Options:
       --values          Print read results even when the query also mutates
       --check           No output/write; exit 1 if the query would change source
       --query-file FILE Read the query from a file
+      --program FILE    Load a compiled bytecode image (.tqlc)
+      --assemble FILE   Assemble bytecode text (.tqla)
+      --emit-bytecode FILE Write a compiled image and exit
+      --disassemble     Print bytecode assembly and exit
       --arg NAME=VALUE  Bind a string parameter (repeatable)
       --argjson NAME=JSON Bind a JSON parameter (repeatable)
       --params-file FILE Read parameters from a JSON object; flags override it
@@ -58,7 +64,8 @@ func main() { os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
 func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	fs := flag.NewFlagSet("tql", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	var format, queryFile string
+	var format, queryFile, programFile, assembleFile, emitBytecode string
+	var disassemble bool
 	var parameters parameterFlags
 	var style tql.Style
 	var collectionStyle, indent string
@@ -80,6 +87,10 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	fs.BoolVar(&values, "values", false, "print read results")
 	fs.BoolVar(&check, "check", false, "check for changes")
 	fs.StringVar(&queryFile, "query-file", "", "query file")
+	fs.StringVar(&programFile, "program", "", "compiled bytecode image")
+	fs.StringVar(&assembleFile, "assemble", "", "bytecode assembly file")
+	fs.StringVar(&emitBytecode, "emit-bytecode", "", "write compiled bytecode image")
+	fs.BoolVar(&disassemble, "disassemble", false, "print bytecode assembly")
 	fs.Func("arg", "string parameter NAME=VALUE", func(s string) error { return parameters.set(s, false) })
 	fs.Func("argjson", "JSON parameter NAME=JSON", func(s string) error { return parameters.set(s, true) })
 	fs.Func("params-file", "JSON parameters file", parameters.setFile)
@@ -109,20 +120,72 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 		return 0
 	}
 	positional := fs.Args()
-	var program string
-	if queryFile != "" {
-		data, err := os.ReadFile(queryFile)
-		if err != nil {
-			return fail(err)
+	programSources := 0
+	for _, value := range []string{queryFile, programFile, assembleFile} {
+		if value != "" {
+			programSources++
 		}
-		program = string(data)
-	} else {
+	}
+	if programSources > 1 {
+		return fail(fmt.Errorf("--query-file, --program and --assemble are mutually exclusive"))
+	}
+	if disassemble && emitBytecode != "" {
+		return fail(fmt.Errorf("--disassemble and --emit-bytecode cannot be combined"))
+	}
+	if (disassemble || emitBytecode != "") && (inPlace || check || values) {
+		return fail(fmt.Errorf("--disassemble and --emit-bytecode cannot be combined with execution flags"))
+	}
+	if emitBytecode == "-" {
+		return fail(fmt.Errorf("--emit-bytecode requires a file path"))
+	}
+
+	var p *tql.Program
+	var err error
+	switch {
+	case programFile != "":
+		data, readErr := os.ReadFile(programFile)
+		if readErr != nil {
+			return fail(readErr)
+		}
+		p, err = tql.LoadProgram(data)
+	case assembleFile != "":
+		data, readErr := os.ReadFile(assembleFile)
+		if readErr != nil {
+			return fail(readErr)
+		}
+		p, err = tql.Assemble(string(data))
+	case queryFile != "":
+		data, readErr := os.ReadFile(queryFile)
+		if readErr != nil {
+			return fail(readErr)
+		}
+		p, err = tql.Compile(string(data))
+	default:
 		if len(positional) == 0 {
 			fs.Usage()
 			return fail(fmt.Errorf("query is required"))
 		}
-		program = positional[0]
+		p, err = tql.Compile(positional[0])
 		positional = positional[1:]
+	}
+	if err != nil {
+		return fail(err)
+	}
+	if disassemble {
+		if _, err := fmt.Fprint(out, p.Disassemble()); err != nil {
+			return fail(err)
+		}
+		return 0
+	}
+	if emitBytecode != "" {
+		image, err := p.MarshalBinary()
+		if err != nil {
+			return fail(err)
+		}
+		if err := writeFileAtomic(emitBytecode, image, 0o644); err != nil {
+			return fail(err)
+		}
+		return 0
 	}
 	if len(positional) > 1 {
 		return fail(fmt.Errorf("expected one input file"))
@@ -136,10 +199,6 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	}
 	if inPlace && filename == "-" {
 		return fail(fmt.Errorf("--in-place requires an input file"))
-	}
-	p, err := tql.Compile(program)
-	if err != nil {
-		return fail(err)
 	}
 	params, err := parameters.load()
 	if err != nil {

@@ -1,7 +1,7 @@
 # Bytecode format, persistence, and tooling
 
-Status: implementation plan. This document defines the binary image, loader,
-disassembler and assembler that make TQL bytecode a durable artifact.
+Status: implemented on this branch. This document defines the binary image,
+loader, disassembler and assembler that make TQL bytecode a durable artifact.
 
 Related plans:
 
@@ -141,17 +141,21 @@ section := id u16 | flags u16 | length u32 | data[length]
 
 | ID | Section | Contents |
 | ---: | --- | --- |
-| 1 | `META` | Compiler version string, opcode-table version, flags |
+| 1 | `META` | Opcode-table/format version (`u32`) |
 | 2 | `PARAM` | Parameter names, required/default flags, typed defaults |
 | 3 | `CONST` | Typed constant pool |
 | 4 | `SLOT` | Slot names, one per lexical slot |
 | 5 | `PATH` | Compiled path plans and their step selectors/predicates |
 | 6 | `TARGET` | Assignment/delete target plans |
-| 7 | `CODE` | Code objects: main first, sub-codes addressed by index |
-| 8 | `DEBUG` | Optional source ranges; ignored by v1 execution |
+| 7 | `TARGETSET` | Code lists used by `DELETE` |
+| 8 | `ARGSET` | Register lists used by calls, objects, arrays and tree functions |
+| 9 | `SCOPE` | Lexical slot ranges |
+| 10 | `LOOP` | Loop descriptors |
+| 11 | `CODE` | Code objects: main first, sub-codes addressed by index |
 
-Unknown mandatory sections are rejected. `DEBUG` may be absent. Section order is
-canonical; duplicate sections are rejected.
+The current reader requires sections 1–11 in ascending order. A future `DEBUG`
+section would receive a new ID and a format-version bump. Unknown sections are
+rejected; duplicate or out-of-order sections are rejected.
 
 Each code object stores its debug name, register count, instructions, loop
 descriptors and scope ranges. Each instruction stores its opcode, operands and
@@ -190,7 +194,7 @@ accepted values.
 
 Two runs of the same compiler version produce identical bytes. That makes golden
 files, checksums and build reproducibility meaningful. The assembly text has the
-same goal through canonical directive order and label numbering.
+same goal through canonical directive order and numeric instruction indexes.
 
 ### Versioning
 
@@ -267,100 +271,98 @@ format; comments are ignored by the assembler.
 
 ### Syntax
 
-- `#` starts a comment through the end of the line.
+- Lines beginning with `#` are comments. The disassembler does not emit trailing
+  comments, so a `#` outside a quoted value is not special elsewhere.
 - `.directive` lines configure the program or a code object.
-- `label:` defines a jump target inside the current code.
-- `MNEMONIC operand, ...` is one instruction. Mnemonics come from the stable
-  opcode table.
-- Registers are `r0`, `r1`, ...; constants `K0`, ...; paths `P0`, ...; targets
-  `T0`, ...; codes `C0`, ...; loops `L0`, ...; scopes `S0`, ... .
-- Branch operands are labels local to the code. The assembler resolves forward
-  and backward references and rejects duplicates or undefined labels.
+- `MNEMONIC operand ...` is one instruction. Mnemonics come from the stable
+  opcode table; malformed operand counts are assembly errors.
+- Registers are numeric (`0`, `1`, ...); constants `K0`, ...; paths `P0`, ...;
+  targets `T0`, ...; argument sets `A0`, ...; target sets `D0`, ...; codes
+  `C0`, ...; loops `L0`, ...; scopes `S0`, ... .
+- Jump operands are numeric instruction indexes inside the current code. The VM
+  validates every index; labels are a readability improvement for a later
+  version, not a requirement of v1.
 
 Directives:
 
 | Directive | Meaning |
 | --- | --- |
-| `.version N` | Required; must match the build's format version |
-| `.param $name required` | Required input parameter |
-| `.param $name = <value>` | Optional input parameter with a default |
-| `.const KN = <value>` | Typed constant; values use TQL literal syntax |
-| `.slot SN $name` | Lexical slot name |
-| `.path PN = <steps>` | Path plan; steps separated by commas |
-| `.target TN = <target>` | Assignment/delete target plan |
-| `.code CN registers=N` | Start a code object; `C0` is main |
+| `.version N` | Must match the build's format version |
+| `.param "name" required` | Required input parameter |
+| `.param "name" default json <value>` | Optional input parameter with a default |
+| `.const KN json <json>` | Value constant, using exact JSON numbers |
+| `.const KN text "..."` | Text constant (key, name or operator) |
+| `.const KN texts ["..."]` | Object key set |
+| `.slot SN "name"` | Lexical slot name |
+| `.path PN` | Start a path plan; following `.step` lines add steps |
+| `.step key "k"`, `.step index N`, `.step wildcard`, `.step slice FROM TO`, `.step filter CN`, `.step dynamic CN` | One path step; `*` means an omitted slice bound |
+| `.target TN path root=BOOL base=N path=PN` | Path target; `base=-1` means current input |
+| `.target TN expr CN` | General expression target |
+| `.argset AN [registers]` | Register list for calls, objects, arrays and tree functions |
+| `.targetset DN [CN ...]` | Code list for `DELETE` |
+| `.scope SN [slots]` | Lexical slot range |
+| `.loop LN KIND continue=N break=N scope=N varslot=N` | Loop descriptor; KIND is `for` or `while` |
+| `.code CN "name" REGS` | Start a code object; `C0` is main |
 | `.stmt N` | Statement index for following instructions |
-| `.loop LN kind=for continue=Lx break=Ly depth=N` | Loop descriptor |
-| `.scope SN slots=A..B` | Scope slot range |
-| `.end` | Optional end of a code or file |
+| `.end` | Optional end of a path/code/file |
 
-Path steps are `key K0`, `index -1`, `wildcard`, `slice -2:`, `filter C1` and
-`dynamic C2`. Targets are `root`, `ctx`, `base C2`, optionally followed by
-`steps=P0`, or `expr C2` for a general selector. The exact operand grammar is
-generated from the opcode table; an operand that does not fit its layout is an
-assembly error.
+Value constants use JSON syntax. Exact number spellings survive because the
+decoder uses `json.Number` and converts it to `syntax.Number`; datetime constants
+use `datetime "..."`. The binary format uses the typed encoding in
+[Values](#values), not JSON.
 
 ### Example
 
+This is the actual canonical output for
+`services[name == "api"].replicas = 2`:
+
 ```asm
-# TQL bytecode assembly v1
-# services[name == "api"].replicas = 2
+# TQL bytecode v1
 .version 1
-
-.const K0 = "services"
-.const K1 = "name"
-.const K2 = "api"
-.const K3 = "replicas"
-.const K4 = 2
-
-.path P0 = key K0, filter C1, key K3
-.path P1 = key K1
-.target T0 = root steps=P0
-
-.code C1 registers=4
-    .stmt 1
-    STEPS r1, CTX, P1
-    ONE r2, r1
-    CONST_VALUE r3, K2
-    BINARY r0, r2, r3, "=="
-    HALT
-
-.code C2 registers=2
-    .stmt 1
-    CONST_VALUE r0, K4
-    HALT
-
-.code C0 registers=2
-    .stmt 1
-    TICK
-    ASSIGN "=", T0, C2
-    HALT
+.const K0 json "api"
+.const K1 text "=="
+.const K2 text "="
+.const K3 json 2
+.path P0
+.step key "name"
+.path P1
+.step key "services"
+.step filter C1
+.step key "replicas"
+.target T0 path root=false base=-1 path=P1
+.scope S0
+.code C0 "main" 0
+.stmt 1
+STMT_ENTER 1
+TICK
+ASSIGN_CONST K2 T0 K3
+STMT_LEAVE
+HALT
+.code C1 "filter" 4
+.stmt 1
+CTX 3
+STEPS 3 3 P0
+ONE 2 3
+CONST_VALUE 3 K0
+BINARY 1 2 3 K1
+NODE 0 1
+HALT
 ```
 
-The real disassembler adds resolved comments such as
-`# K0 = "services"`, `# slot S0 = $service`, `# path P2: key "services"`, but the
-directives above are sufficient to reassemble the program. Comments never carry
-meaning.
+The example has no labels or free-form syntax: every directive maps directly to
+a field in `Program`, and the assembler reconstructs the same image.
 
 ### Canonical disassembly
 
 `Program.Disassemble` emits:
 
 - header directives in fixed order (`.version`, parameters, constants, slots,
-  paths, targets);
+  paths, targets, sets, scopes, loops);
 - code objects in index order, main first;
-- instructions in index order with stable register numbers;
-- labels assigned by first jump target, then declaration order;
+- instructions in index order with numeric register numbers and jump targets;
 - `.stmt` only when the statement index changes;
-- comments with resolved names/values for human debugging.
-
-The output is deterministic. `Disassemble(LoadProgram(MarshalBinary(p)))` equals
-`Disassemble(p)` and `MarshalBinary(Assemble(Disassemble(p)))` equals
-`MarshalBinary(p)`. This is the central round-trip invariant.
-
-The assembler accepts hand-written programs too. It validates limits, operand
-layouts, labels, constants and parameters, and then runs the same verifier as the
-binary loader. It never executes code while assembling.
+- no comments in the canonical body; debug annotations may be added in a later
+  version without changing the grammar.
 
 ## Public API and CLI
 
@@ -373,7 +375,7 @@ func (p *Program) MarshalBinary() ([]byte, error)
 // LoadProgram validates and loads an image produced by MarshalBinary.
 func LoadProgram(data []byte) (*Program, error)
 
-// Disassemble returns canonical, re-assemblable text with debug comments.
+// Disassemble returns canonical, re-assemblable bytecode text.
 func (p *Program) Disassemble() string
 
 // Assemble parses canonical assembly into a validated Program.
@@ -413,7 +415,7 @@ Flag rules:
 - `--emit-bytecode` and `--disassemble` are mutually exclusive.
 - `--emit-bytecode` cannot be combined with `--in-place`, `--check` or
   `--values`; those describe document execution.
-- Image writes are atomic and use the existing checked-file replacement path.
+- Image writes are atomic and replace an existing image only after a complete write.
 
 Errors for compile, load, assembly, disassembly and I/O use exit status 2, like
 other query/input/write failures. Help text and `docs/cli.md` list the flags and
@@ -424,8 +426,8 @@ the `.tqlc` / `.tqla` naming convention.
 - A bytecode image is code, not data. Loading it is safe only in the sense of
   memory safety and bounded validation; executing it still obeys TQL's step limit
   and can perform expensive work.
-- The loader never allocates from an unchecked count and never indexes before a
-  bounds check. Integer overflow is treated as corruption.
+- The loader checks every count against a fixed limit before allocating and
+  checks every index before use. Integer overflow is treated as corruption.
 - CRC32C detects accidental corruption. It is not an authentication mechanism.
 - No `encoding/gob`, `unsafe`, reflection-based decoding or pointer values. The
   encoding is explicit and portable.
@@ -442,7 +444,7 @@ the `.tqlc` / `.tqla` naming convention.
 | Corruption | Truncate every section, flip header/payload bytes, bad CRC, bad magic/version/flags, oversized counts, trailing bytes |
 | Structure | Bad register/slot/constant/path/target/code/loop/scope index; bad jump; cyclic sub-codes; missing HALT; unknown opcode; malformed operator |
 | Values | Null/bool/number spelling/string UTF-8/datetime/array/object order/duplicate keys/depth limit |
-| Assembly | Forward/backward labels, every directive, comments, typed constants, paths/targets, malformed lines with line numbers |
+| Assembly | Numeric jump indexes, every directive, comments, typed constants, paths/targets, malformed lines with line numbers |
 | Round-trip | Compile → marshal → load → disassemble → assemble → marshal equality; execute both sides; full test corpus |
 | API/CLI | `MarshalBinary`, `LoadProgram`, `Disassemble`, `Assemble`; emit/run/disassemble/assemble flags; atomic writes; exit codes |
 | Fuzz | Loader, assembler, disassembler round-trip; no panic; no unbounded allocation |
@@ -453,15 +455,15 @@ or a non-deterministic image becomes a regression test.
 
 ## Migration steps
 
-| Step | Work | Exit criterion |
-| --- | --- | --- |
-| 4 | Stable opcode table, `Code`/`Program`, typed values, encoder/decoder, verifier, limits | Golden images, corruption matrix, loader fuzz pass; malformed input never panics |
-| 4b | `Program` metadata refactor: parameters and `Mutates` from code, no AST required after compile | Compiled, loaded and assembled programs are interchangeable |
-| 5 | Disassembler, assembler, canonical directives, labels and round-trip tests | Full corpus round-trips bit-for-bit; assembled programs pass parity |
-| 5b | Public API and CLI flags, docs, integration tests | `--emit-bytecode`, `--program`, `--disassemble`, `--assemble` work on real files |
+| Step | State on this branch |
+| --- | --- |
+| Stable opcode table, `Code`/`Program`, typed values, encoder/decoder, verifier, limits | Implemented; corruption, round-trip and loader fuzz tests pass |
+| `Program` metadata: parameters and `Mutates` from code | Implemented; loaded and assembled programs are interchangeable |
+| Disassembler, assembler, canonical directives and round-trip tests | Implemented; numeric jump indexes, JSON constants, full round-trip |
+| Public API and CLI flags, docs, integration tests | Implemented; `--emit-bytecode`, `--program`, `--disassemble`, `--assemble` covered by CLI tests |
 
-Steps 4–5 can proceed in parallel with the VM statement work, but the production
-switch waits for both and for the performance gate.
+The AST reference engine remains only for differential tests. The performance
+gate was met for expression-heavy work; mutation loops are neutral.
 
 ## Risks
 
@@ -471,7 +473,7 @@ switch waits for both and for the performance gate.
 | Loader panic or memory blow-up | Bounded reads, checked arithmetic, limits before allocation, fuzz |
 | Assembly and disassembly diverge | One canonical grammar, round-trip corpus, deterministic directives |
 | Loaded code bypasses `Mutates` | Derive mutability from opcodes, never from the file |
-| Debug output becomes unstable | Comments are ignored; only directives and labels are semantic |
+| Debug output becomes unstable | Comments are ignored; directives and numeric instruction indexes are semantic |
 | Cross-platform byte differences | Fixed little-endian, fixed widths, sorted objects, no `int`/pointers |
 | Users treat CRC as security | Document that validation, not checksum, is the safety boundary |
 

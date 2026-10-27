@@ -23,7 +23,7 @@ func (d *Document) groups(ns []*syntax.Node, deleting bool) ([]selectionGroup, e
 	groups := []selectionGroup{}
 	byOwner := map[*binding]int{}
 	for _, n := range ns {
-		owner, e := d.runtime.owner(n)
+		owner, e := d.state.owner(n)
 		if e != nil {
 			return nil, e
 		}
@@ -40,7 +40,7 @@ func (d *Document) groups(ns []*syntax.Node, deleting bool) ([]selectionGroup, e
 	}
 	for i := range groups {
 		g := &groups[i]
-		as, e := uniqueTargets(d.runtime.root(g.owner), g.nodes, deleting)
+		as, e := uniqueTargets(d.state.root(g.owner), g.nodes, deleting)
 		if e != nil {
 			return nil, e
 		}
@@ -218,14 +218,14 @@ func (d *Document) assignmentPath(base *syntax.Node, steps []query.Step, vars qu
 				}
 				concrete[i] = step
 			}
-			owner, err := d.runtime.owner(n)
+			owner, err := d.state.owner(n)
 			if err != nil {
 				return err
 			}
 			if err := writable(owner); err != nil {
 				return err
 			}
-			a, err := addr(d.runtime.root(owner), n)
+			a, err := addr(d.state.root(owner), n)
 			if err != nil {
 				return err
 			}

@@ -165,6 +165,22 @@ Parameters are read-only values, checked before execution. Use `--params-file`
 for a JSON object of inputs, or `tql.WithParams` with the Go execution APIs.
 See [script parameters](docs/scripts.md#input-parameters) for defaults and scope.
 
+## Compile once, run or inspect later
+
+```sh
+tql --query-file migration.tql --emit-bytecode migration.tqlc
+tql --program migration.tqlc config.yaml
+tql --program migration.tqlc --disassemble
+tql --assemble migration.tqla config.yaml
+```
+
+A bytecode image is versioned and validated on load. Disassembly is canonical
+and can be assembled back; it is a debugging and review format, not a required
+deployment step. The Go API adds `Program.MarshalBinary`, `tql.LoadProgram`,
+`Program.Disassemble` and `tql.Assemble`; see the
+[bytecode design](docs/bytecode-vm.md) and
+[format notes](docs/bytecode-format.md).
+
 ## Use the Go library
 
 ```go
@@ -222,6 +238,9 @@ of `go test ./...`. JSON cases follow TQL's stricter duplicate-key policy; see
 - [Go API and custom formats](docs/library.md)
 - [Structured editing, diff, and merge from Go](docs/edit.md)
 - [Architecture and source preservation](docs/architecture.md)
+- [Bytecode VM](docs/bytecode-vm.md)
+- [Bytecode format, persistence, and assembly](docs/bytecode-format.md)
+- [Bytecode performance and SIMD](docs/bytecode-performance.md)
 - [Performance](docs/performance.md)
 - [File integration tests](docs/integration-tests.md)
 - [Parser conformance and upstream test suites](conformance/README.md)

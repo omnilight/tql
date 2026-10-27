@@ -4,6 +4,31 @@ TQL optimizes local edits while preserving the original source. Every successful
 edit batch is still reparsed and checked against the expected value tree; timings
 include that work unless a benchmark explicitly measures a lower-level operation.
 
+## Bytecode execution
+
+`Compile` produces bytecode and `Document.Execute` runs it on a register VM. The
+VM removes per-expression interface dispatch and resolves lexical variables to
+slots; parsing, format editing, reparsing and semantic verification are unchanged.
+
+On an Apple M3 Pro, macOS arm64, Go 1.27.1 (2026-10-27), with
+`go test -run '^$' -bench 'Benchmark(AST|VM)' -benchmem -benchtime=200ms -count=3 .`:
+
+| Workload | AST | VM | Allocations |
+| --- | ---: | ---: | --- |
+| Compiled read, 1,000 services | ~140 µs | ~112 µs | 7,015 → 4,017 |
+| Filter and project, 1,000 services | ~90 µs | ~64 µs | 7,044 → 2,036 |
+| Read loop, 10 items | ~8.6 µs | ~6.8 µs | 459 → 400 |
+| Nested read loops, 10 × 10 | ~88 µs | ~65 µs | 4,465 → 3,912 |
+| `walk` update | ~20–25 µs | ~16.5 µs | 652 → 556 |
+| Mutation loop, 128 items | ~33 µs | ~30.5 µs | 1,049 → 992 |
+| One-shot edit, 1,000 services | ~1.31 ms | ~1.31 ms | ~42,300 |
+
+Expression-heavy work improves; edit-dominated work is neutral because document
+parsing and verification dominate. `length(string)` also has a SIMD rune-count
+fast path on Go 1.27+ with `GOEXPERIMENT=simd`, with a scalar fallback. These are measurements of one machine and one
+revision, not guarantees. See [bytecode performance](bytecode-performance.md) for
+the workload definitions, commands and SIMD notes.
+
 ## Edit batching
 
 A statement such as `services[].port += 1` plans independent replacements against a

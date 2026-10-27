@@ -1,7 +1,8 @@
 # Bytecode virtual machine
 
-Status: implementation plan. This document describes a design; the branch contains
-no VM code yet.
+Status: implemented on this branch. The compiler/VM, persistence, disassembly,
+assembly and CLI are in place. The AST interpreter remains as a reference engine
+for differential tests and is not the production path.
 
 Related plans:
 
@@ -22,6 +23,7 @@ Related plans:
 - [Execution](#execution)
 - [Testing and parity](#testing-and-parity)
 - [Migration steps](#migration-steps)
+- [Implementation status](#implementation-status)
 - [Risks](#risks)
 - [Open questions and recommendations](#open-questions-and-recommendations)
 
@@ -204,9 +206,10 @@ internal/bytecode/
   decode.go      bounded binary reader and loader
   verify.go      structural validation
   disasm.go      canonical, annotated assembly output
-  asm.go         assembly parser and label resolution
+  asm.go         assembly parser and operand validation
 tql/
   vm.go          frames, expressions, statements, loops, errors
+  vm_target.go   compiled path, assignment and deletion execution
   program.go     params, mutates, code; marshal/load/disassemble/assemble API
 ```
 
@@ -294,6 +297,7 @@ Value and variable ops:
 | `ROOT dst` | Document root stream |
 | `VAR dst, slot` | Binding value stream; live for references, snapshot for `let` |
 | `MISSING_VAR name` | Runtime `undefined variable $name` error; used where the compiler cannot resolve a lexical slot |
+| `FAIL text` | Runtime error with a precomputed message, used for unknown functions and invalid arity before arguments are evaluated |
 | `ONE dst, src` | Exactly one value from a stream, detached to a scalar via `Interface()`; empty is a nil scalar; more than one is an error |
 | `NODE dst, src` | Materialize a scalar as a fresh one-node stream; a nil scalar becomes null |
 | `ARG dst, src` | Zero or one value for a built-in as a stream, keeping node identity; empty is a null node; more than one is an error |
@@ -312,6 +316,7 @@ Path and composition ops:
 | `JUMP_IF_TRUE src, target` | Read truth from a scalar |
 | `JUMP_IF_NOT_NULL src, target` | Read nullness from a scalar; used by `??` |
 | `PIPE dst, src, code` | Evaluate `code` for each node in `src`, with that node as current input; concatenate |
+| `FILTER_STREAM dst, src, code` | Evaluate a scalar predicate for each node in `src`; keep nodes whose predicate is truthy |
 | `CALL dst, name, args` | Built-in call; args are `ARG` registers |
 | `SELECT dst, code` | Evaluate predicate code (ending in a scalar); return the current input stream if truthy |
 | `TREE dst, name, args` | `walk`, `path`, or `key`; args are full streams |
@@ -324,7 +329,8 @@ Statement and control ops:
 | `READ src` | Append `Interface()` of every node to `Result.Values` |
 | `CHECK_DECLARE name` | Fail if the current scope already declares `name`; does not activate it |
 | `DECLARE slot, src` | Activate `slot` from a scalar, materializing its tree |
-| `ASSIGN op, target, rhs` | Assignment or compound assignment, using a compiled target plan and a scalar RHS |
+| `ASSIGN op, target, rhs` | Assignment or compound assignment, using a compiled target plan and a scalar RHS code |
+| `ASSIGN_CONST op, target, value` | Assignment with a literal RHS, avoiding a sub-code call per target |
 | `DELETE targets` | Evaluate target streams and delete their nodes |
 | `FOR_INIT iter, src` | Evaluate the loop stream once and build the reference queue |
 | `FOR_NEXT iter, done` | Leave the previous iteration scope, enter the next live iteration, or jump to `done` |
@@ -407,7 +413,7 @@ Sub-codes are emitted for:
 keep their arity checks in `ApplyTreeFunction`.
 
 The compiler tracks the current statement index and emits statement bodies in
-order. Labels are patched after emission; there is no symbolic linker.
+order. Jump targets are patched after emission; there is no external linker.
 
 ### Value identity and detach points
 
@@ -721,7 +727,7 @@ hook so one-shot `Exec`/`Eval` cost and behavior do not change before the switch
 | 2 | Add statement code generation for `let`, `if`, `while`, `for`, `break`, `continue`, `read`; add slots, scopes, iterators, refs, ticks, and error prefixes | Read-only scripts (including `for` with `path`/`key`) match the AST engine |
 | 3 | Add compiled assignment and deletion targets; refactor `assignmentPath` onto `pathPlan`; reuse `replaceMany`, `createFrom`, `mutateOwned`, and rebasing | Full script parity, including recipes, rollback, aliases, local trees, and parameter errors |
 | 4 | Add the stable opcode table, versioned binary encoder/decoder and structural verifier; persist parameters, slots, paths, loops, scopes and sub-codes | Golden images, corruption matrix and loader fuzz pass; malformed input never panics |
-| 5 | Add canonical disassembly and the assembler with labels, typed constants, path/sub-code sections and debug comments | Compile → disassemble → assemble → marshal round-trips exactly; assembled programs pass parity |
+| 5 | Add canonical disassembly and the assembler with numeric jump targets, typed constants, path/sub-code sections and debug comments | Compile → disassemble → assemble → marshal round-trips exactly; assembled programs pass parity |
 | 6 | Run the full AST-versus-VM benchmark gate; audit SIMD opportunities and prototype only candidates that pass the measurement rule | The gate in [performance and SIMD](bytecode-performance.md) is met and reported |
 | 7 | Switch `Document.execute` to the VM; keep the AST path only as a temporary test oracle, then remove it and the dual-engine hooks; move expression-semantics assertions from `internal/query/script_test.go` to `tql` while parser-shape tests stay | Full suite, race, fuzz, golden corpus and benchmark gate pass; one production engine remains |
 | 8 | Optimize only with measurements: frame pooling, register reuse, fused path steps, avoiding `NODE`/`ONE` round trips, single-target assignment fast path, constant sharing | Each change has before/after numbers; no parity regressions |
@@ -745,7 +751,7 @@ is not a target; the parity and performance evidence is.
 | `for` reference rebasing differs | Reuse `nodeRef` and `rebase` unchanged; iterator close truncates exactly like the current `defer` |
 | Binary format drifts or becomes unreadable | Stable opcode IDs, explicit format version, deterministic encoding, golden images and a rejection test for every version change |
 | Malformed or hostile image panics the loader/VM | Bounded reads before allocation, full structural verifier, runtime bounds/kind checks, loader fuzz; never trust counts or indexes |
-| Assembly stops re-assembling | One canonical syntax, labels for every branch, typed constants, round-trip tests on the full corpus; debug comments are never functional |
+| Assembly stops re-assembling | One canonical syntax, explicit numeric branch targets, typed constants, round-trip tests on the full corpus; debug comments are never functional |
 | Performance claims are cherry-picked | Predeclared workloads and thresholds, `benchstat`, machine/date recorded, no CI wall-clock assertions |
 | SIMD work adds complexity without a win | Reuse existing scanners; add SIMD only behind build tags with scalar fallback and a measured gate; otherwise reject explicitly |
 
@@ -776,12 +782,27 @@ is not a target; the parity and performance evidence is.
    Do not embed the TQL source text or document data. Source byte ranges can be an
    optional later section if a stepping trace needs them.
 8. **How stable is the assembly text?** Recommendation: the canonical form is
-   versioned with the bytecode; comments are ignored; directives and labels are
-   exact. Debug output may add comments but must never rely on them for meaning.
+   versioned with the bytecode; comments are ignored; directives and numeric
+   instruction indexes are exact. Debug output may add comments but must never
+   rely on them for meaning.
 9. **Where is SIMD justified?** Recommendation: reuse the existing scanner SIMD;
    prototype only long-string leaf operations if profiling shows a win; do not
    vectorize dispatch, pointer streams or `math/big` arithmetic. See the matrix in
    [performance and SIMD](bytecode-performance.md#simd-applicability).
+
+## Implementation status
+
+| Area | State on this branch |
+| --- | --- |
+| Expression compiler and VM | Implemented; differential and existing tests pass |
+| Statements, scopes, loops, references | Implemented on the bytecode VM |
+| Assignment, creation, deletion, rebasing | Implemented with the existing edit engine |
+| Binary image and loader | Implemented with structural validation and fuzz coverage |
+| Disassembler and assembler | Implemented with bytecode round-trip tests |
+| Public API and CLI | Implemented: `MarshalBinary`, `LoadProgram`, `Disassemble`, `Assemble`, `--emit-bytecode`, `--program`, `--disassemble`, `--assemble` |
+| AST reference engine | Retained for differential tests; production uses the VM |
+| Performance gate | Expression-heavy workloads win; mutation loops are neutral, not slower. Details and numbers are in [performance and SIMD](bytecode-performance.md#measured-results). |
+| SIMD audit | Existing scanner SIMD is reused; no new VM kernel passed the measurement threshold |
 
 ## Definition of done
 

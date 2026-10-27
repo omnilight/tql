@@ -41,6 +41,7 @@ type Document struct {
 	root    *syntax.Node
 	format  Format
 	runtime *scriptRuntime
+	state   runtimeState
 }
 
 // Bytes returns a copy of the current source.
@@ -56,6 +57,8 @@ type Result struct {
 	Bytes   []byte
 	Changed bool
 }
+
+var errProgram = errors.New("nil program")
 
 // Exec compiles and executes a query or script. Any error leaves d unchanged.
 func (d *Document) Exec(text string, options ...ExecOption) (*Result, error) {
@@ -118,8 +121,13 @@ func (d *Document) Execute(p *Program, options ...ExecOption) (*Result, error) {
 	return d.execute(p, true, o)
 }
 func (d *Document) execute(p *Program, wantBytes bool, options execOptions) (*Result, error) {
+	return d.executeVM(p, wantBytes, options)
+}
+
+// executeAST is the reference interpreter kept for differential tests.
+func (d *Document) executeAST(p *Program, wantBytes bool, options execOptions) (*Result, error) {
 	if p == nil || p.program == nil {
-		return nil, errors.New("nil program")
+		return nil, errProgram
 	}
 	if d == nil || d.root == nil || d.format == nil {
 		return nil, errors.New("uninitialized document")
@@ -130,8 +138,36 @@ func (d *Document) execute(p *Program, wantBytes bool, options execOptions) (*Re
 	}
 	work := &Document{source: d.source, root: d.root, format: d.format}
 	work.runtime = newRuntime(work, bindings)
+	work.state = work.runtime
 	result := &Result{Values: []any{}}
 	if _, err := work.runtime.block(p.program.Statements, false, result); err != nil {
+		return nil, err
+	}
+	if wantBytes {
+		result.Bytes = bytes.Clone(work.source)
+	}
+	result.Changed = !bytes.Equal(d.source, work.source)
+	d.source, d.root = work.source, work.root
+	return result, nil
+}
+
+// executeVM runs the compiled bytecode on a work copy.
+func (d *Document) executeVM(p *Program, wantBytes bool, options execOptions) (*Result, error) {
+	if p == nil || p.code == nil {
+		return nil, errors.New("nil program")
+	}
+	if d == nil || d.root == nil || d.format == nil {
+		return nil, errors.New("uninitialized document")
+	}
+	bindings, err := options.bindings(p)
+	if err != nil {
+		return nil, err
+	}
+	work := &Document{source: d.source, root: d.root, format: d.format}
+	machine := newVM(work, bindings, p.code)
+	work.state = machine
+	result := &Result{Values: []any{}}
+	if err := machine.run(result); err != nil {
 		return nil, err
 	}
 	if wantBytes {
