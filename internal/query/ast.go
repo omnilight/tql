@@ -1,16 +1,9 @@
-// Package query parses and evaluates TQL expressions and script syntax.
+// Package query parses TQL expressions and script syntax for bytecode compilation.
 package query
 
-import (
-	"github.com/vasileknik76/tql/syntax"
-)
-
-type Expr interface {
-	Eval(current, root *syntax.Node, vars ...Variables) ([]*syntax.Node, error)
-}
-
-// Variables contains the bindings visible to an expression. Later maps shadow earlier maps.
-type Variables map[string]*syntax.Node
+// Expr is an AST expression node. Concrete node types are inspected by the
+// bytecode compiler; parsing does not evaluate them.
+type Expr interface{}
 
 type Variable struct{ Name string }
 type Literal struct{ Value any }

@@ -102,13 +102,14 @@ tql --assemble /tmp/openapi31.tqla \
 The recipe is tested on a generated OpenAPI document with 50 schemas:
 
 ```sh
-go test -run '^$' -bench 'Benchmark(AST|VM)OpenAPI31' -benchmem .
-go test -run '^$' -bench 'Benchmark(AST|VM)OpenAPI31Check' -benchmem .
+go test -run '^$' -bench 'BenchmarkVMOpenAPI31' -benchmem .
+go test -run '^$' -bench 'BenchmarkVMOpenAPI31Check' -benchmem .
 ```
 
-On the reference machine the read-only check is about 45% faster on the VM
-(~2.3 ms → ~1.2 ms, 31k → 16k allocations). Applying the migration is neutral:
-both engines spend most time reparsing and verifying after each edit, not in the
-VM loop. This is expected for a source-preserving migration and is exactly the
-kind of end-to-end workload that should accompany the microbenchmarks in
+On the reference machine the read-only check is about 47% faster than the
+previous AST engine (~1.13 ms → ~0.60 ms, 31k → 16k allocations). Applying the
+migration is neutral because the edit engine dominates; the AST comparison is
+historical, as the VM is now the only engine. This is expected for a
+source-preserving migration and is exactly the kind of end-to-end workload that
+should accompany the microbenchmarks in
 [bytecode performance](../../../docs/bytecode-performance.md).

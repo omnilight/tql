@@ -33,7 +33,7 @@ func benchServices() string {
 	return source.String()
 }
 
-func benchmarkEngine(b *testing.B, source, program string, vm bool) {
+func benchmarkEngine(b *testing.B, source, program string) {
 	base := benchDocument(b, source)
 	p, err := Compile(program)
 	if err != nil {
@@ -43,32 +43,18 @@ func benchmarkEngine(b *testing.B, source, program string, vm bool) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		doc := cloneDocument(base)
-		if vm {
-			if _, err := doc.executeVM(p, false, execOptions{}); err != nil {
-				b.Fatal(err)
-			}
-		} else {
-			if _, err := doc.executeAST(p, false, execOptions{}); err != nil {
-				b.Fatal(err)
-			}
+		if _, err := doc.executeVM(p, false, execOptions{}); err != nil {
+			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkASTCompiledRead(b *testing.B) {
-	benchmarkEngine(b, benchServices(), `services[name == "service-500"].port`, false)
-}
-
 func BenchmarkVMCompiledRead(b *testing.B) {
-	benchmarkEngine(b, benchServices(), `services[name == "service-500"].port`, true)
-}
-
-func BenchmarkASTScriptFilter(b *testing.B) {
-	benchmarkEngine(b, benchServices(), `services[] | select(.enabled) | .port`, false)
+	benchmarkEngine(b, benchServices(), `services[name == "service-500"].port`)
 }
 
 func BenchmarkVMScriptFilter(b *testing.B) {
-	benchmarkEngine(b, benchServices(), `services[] | select(.enabled) | .port`, true)
+	benchmarkEngine(b, benchServices(), `services[] | select(.enabled) | .port`)
 }
 
 func benchLoopSource() string {
@@ -84,38 +70,12 @@ func benchLoopSource() string {
 	return b.String()
 }
 
-func BenchmarkASTScriptForLoop(b *testing.B) {
-	benchmarkEngine(b, benchLoopSource(), `for $x in a[] { $x += 1 } a`, false)
-}
-
 func BenchmarkVMScriptForLoop(b *testing.B) {
-	benchmarkEngine(b, benchLoopSource(), `for $x in a[] { $x += 1 } a`, true)
-}
-
-func BenchmarkASTScriptWalk(b *testing.B) {
-	benchmarkEngine(b, `{"a":{"b":[1,2,3],"c":{"d":4}}}`, `for $x in walk(.) { if type($x) == "number" { $x += 1 } } a`, false)
+	benchmarkEngine(b, benchLoopSource(), `for $x in a[] { $x += 1 } a`)
 }
 
 func BenchmarkVMScriptWalk(b *testing.B) {
-	benchmarkEngine(b, `{"a":{"b":[1,2,3],"c":{"d":4}}}`, `for $x in walk(.) { if type($x) == "number" { $x += 1 } } a`, true)
-}
-
-func BenchmarkASTOneShotEdit(b *testing.B) {
-	source := []byte(benchServices())
-	p, err := Compile(`services[500].port = 9999`)
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		doc, e := Parse(source, "json")
-		if e != nil {
-			b.Fatal(e)
-		}
-		if _, e = doc.executeAST(p, false, execOptions{}); e != nil {
-			b.Fatal(e)
-		}
-	}
+	benchmarkEngine(b, `{"a":{"b":[1,2,3],"c":{"d":4}}}`, `for $x in walk(.) { if type($x) == "number" { $x += 1 } } a`)
 }
 
 func BenchmarkVMOneShotEdit(b *testing.B) {
@@ -190,20 +150,12 @@ func BenchmarkAssembleProgram(b *testing.B) {
 	}
 }
 
-func BenchmarkASTScriptReadLoop(b *testing.B) {
-	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { $x * 2 }`, false)
-}
-
 func BenchmarkVMScriptReadLoop(b *testing.B) {
-	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { $x * 2 }`, true)
-}
-
-func BenchmarkASTScriptNestedReadLoops(b *testing.B) {
-	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { for $y in $.a[] { $x * $y } }`, false)
+	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { $x * 2 }`)
 }
 
 func BenchmarkVMScriptNestedReadLoops(b *testing.B) {
-	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { for $y in $.a[] { $x * $y } }`, true)
+	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8,9,10]}`, `for $x in a[] { for $y in $.a[] { $x * $y } }`)
 }
 
 func openAPISource(schemas int) string {
@@ -228,12 +180,8 @@ func openAPIScript(b *testing.B) string {
 	return string(data)
 }
 
-func BenchmarkASTOpenAPI31(b *testing.B) {
-	benchmarkEngine(b, openAPISource(50), openAPIScript(b), false)
-}
-
 func BenchmarkVMOpenAPI31(b *testing.B) {
-	benchmarkEngine(b, openAPISource(50), openAPIScript(b), true)
+	benchmarkEngine(b, openAPISource(50), openAPIScript(b))
 }
 
 func openAPICheckScript(b *testing.B) string {
@@ -245,10 +193,6 @@ func openAPICheckScript(b *testing.B) string {
 	return string(data)
 }
 
-func BenchmarkASTOpenAPI31Check(b *testing.B) {
-	benchmarkEngine(b, openAPISource(50), openAPICheckScript(b), false)
-}
-
 func BenchmarkVMOpenAPI31Check(b *testing.B) {
-	benchmarkEngine(b, openAPISource(50), openAPICheckScript(b), true)
+	benchmarkEngine(b, openAPISource(50), openAPICheckScript(b))
 }

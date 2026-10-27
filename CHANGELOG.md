@@ -13,6 +13,8 @@
 - Preserve exact source bytes, errors, limits, scopes, live references and
   parameter behavior; expression-heavy workloads are faster and edit-dominated
   workloads remain neutral. See `docs/bytecode-performance.md`.
+- Remove the AST interpreter after the VM became the only execution engine;
+  `internal/query` now parses scripts and builds compiler input only.
 - Add a SIMD rune-count fast path for `length(string)` on Go 1.27+ with
   `GOEXPERIMENT=simd`, retaining scalar and `purego` fallbacks.
 - Reduce VM overhead with scalar truth predicates, specialized key/literal

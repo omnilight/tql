@@ -18,7 +18,7 @@ the VM never serializes a whole document.
 | How are edits applied? | The existing transactional edit engine, not the VM |
 | Can code be saved? | Yes: `MarshalBinary` / `LoadProgram` |
 | Can it be inspected? | Yes: `Disassemble` / `Assemble` and CLI flags |
-| What runs in production? | The VM. The AST interpreter is a test oracle only |
+| What runs in production? | The VM; the AST exists only while compiling |
 
 ## Execution model
 
@@ -39,10 +39,9 @@ document ── format parser ── tree ──────── VM + frames
 - `Document.Execute` validates parameters, runs the VM on a work copy, and
   commits the source and tree only after the whole script succeeds.
 - An error leaves the original document untouched. `Result.Values` is discarded
-  on error, just like the AST engine.
-- A program loaded from an image has no AST and executes exactly like a compiled
-  one. `Mutates` is derived from the code, never trusted from the file.
-- The AST interpreter in `internal/query` is retained for differential tests.
+  on any error.
+- A compiled program holds immutable code; the parsed AST is discarded after
+  compilation. `Mutates` is derived from the code, never trusted from a file.
 
 ## Compiler
 
@@ -60,7 +59,7 @@ document ── format parser ── tree ──────── VM + frames
   (`FILTER_MATCH` or a path `match` step). A right-hand path after `|` is folded
   into a `STEPS` plan. Complex predicates keep the generic filter path.
 - **Arguments.** Built-in and tree calls use argument sets; malformed arity is a
-  compile-time `FAIL` and does not evaluate arguments, matching the AST.
+  compile-time `FAIL` and does not evaluate arguments, without evaluating arguments.
 
 ### Instruction set
 
@@ -98,9 +97,8 @@ into `STEPS`; a simple `select` is folded into `FILTER_MATCH` or
 
 ## Value identity
 
-The current evaluator sometimes keeps live document nodes and sometimes detaches
-values. The VM preserves that distinction; this is the most important rule for
-correctness.
+The VM sometimes keeps live document nodes and sometimes detaches values. This
+distinction is the most important rule for correctness.
 
 | Expression | Result |
 | --- | --- |
@@ -169,7 +167,7 @@ any `ASSIGN`, `ASSIGN_CONST` or `DELETE`, including unreachable code.
 ## Limits and errors
 
 - 100,000 `TICK` events: one per statement, one per `while` condition, one per
-  `for` iteration. This is the same behavior as the AST engine.
+  `for` iteration. This is the VM execution limit.
 - Block nesting 128, expression nesting 256, path length 256, enforced by the
   parser.
 - Statement errors keep the `statement N:` prefix chain. Malformed loaded code
@@ -198,16 +196,16 @@ assembly grammar and security rules.
 
 ## Testing and performance
 
-- Differential tests run the AST and VM on the same source and compare values,
-  bytes, `Changed` and full error strings.
+- VM expression, path, statement and error tests cover reads, mutations and
+  transactional rollback.
 - Recipes, runtime ownership tests, golden images, loader corruption tests,
   assembly round-trips and fuzz targets cover the VM and format.
 - `go test ./...`, `go test -race ./...`, `go test -tags purego ./...` and
   `GOEXPERIMENT=simd go test ./...` pass.
 
-Expression-heavy workloads are substantially faster; mutation loops and
-one-shot edits are neutral because parsing, editing, reparsing and verification
-dominate them. Current numbers and reproduction commands are in
+Read-heavy workloads were substantially faster than the former AST interpreter;
+mutation loops and one-shot edits were neutral because parsing, editing,
+reparsing and verification dominated them. Current numbers and reproduction commands are in
 [performance](bytecode-performance.md#measured-results).
 
 ## Design notes
@@ -223,8 +221,9 @@ dominate them. Current numbers and reproduction commands are in
   of `Document`.
 - **No JIT.** Go, no third-party dependencies, and a document-oriented edit
   engine make a JIT a poor trade-off.
-- **One production engine.** The AST interpreter remains only for parity tests;
-  it is removed when that migration work is finished.
+- **One execution engine.** The VM is the only interpreter. `internal/query`
+  parses scripts and builds the AST consumed by the compiler; it does not execute
+  programs.
 
 ## Where to change what
 
@@ -238,4 +237,4 @@ dominate them. Current numbers and reproduction commands are in
 | Structural validation | `internal/bytecode/validate.go` |
 | Disassembly and assembly | `internal/bytecode/disasm.go`, `asm.go` |
 | Public API and CLI | `program.go`, `cmd/tql/main.go` |
-| Behavior guarantee | `vm_internal_test.go`, `vm_corpus_test.go`, `benchmark_test.go` |
+| Behavior guarantee | `vm_internal_test.go`, `vm_expressions_test.go`, `benchmark_test.go` |

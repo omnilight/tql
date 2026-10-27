@@ -10,17 +10,17 @@ include that work unless a benchmark explicitly measures a lower-level operation
 VM removes per-expression interface dispatch and resolves lexical variables to
 slots; parsing, format editing, reparsing and semantic verification are unchanged.
 
-On an Apple M3 Pro, macOS arm64, Go 1.27.1:
+When the VM replaced the AST interpreter on an Apple M3 Pro, macOS arm64,
+Go 1.27.1, reads improved substantially while edit-heavy work stayed neutral:
 
-- compiled reads are about 85–90% faster than the AST engine, with 4 allocations
-  per execution;
-- filter/project pipelines are about 68% faster;
-- read-only and nested loops are about 73–83% faster;
-- `walk` updates are about 30% faster;
-- mutation loops and one-shot edits are neutral because document parsing,
+- compiled reads were about 91% faster, with 4 allocations per execution;
+- filter/project pipelines were about 70% faster;
+- read-only and nested loops were about 76–79% faster;
+- `walk` updates were about 23% faster;
+- mutation loops and one-shot edits were neutral because document parsing,
   editing, reparsing and verification dominate;
-- a read-only OpenAPI 3.0→3.1 schema check is about 45% faster on the VM, while
-  applying the same migration is neutral because the edit engine dominates.
+- a read-only OpenAPI 3.0→3.1 schema check was about 47% faster, while applying
+  the same migration was neutral because the edit engine dominates.
 
 Exact workloads, commands, machine noise and SIMD results are in
 [bytecode performance](bytecode-performance.md). `length(string)` has a SIMD

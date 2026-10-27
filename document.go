@@ -37,11 +37,10 @@ func ParseWith(source []byte, format Format, options ...ParseOption) (*Document,
 // Parse or ParseWith; the zero value is not ready for use. A Document must not be
 // read or modified concurrently without external synchronization.
 type Document struct {
-	source  []byte
-	root    *syntax.Node
-	format  Format
-	runtime *scriptRuntime
-	state   runtimeState
+	source []byte
+	root   *syntax.Node
+	format Format
+	state  documentState
 }
 
 // Bytes returns a copy of the current source.
@@ -82,7 +81,7 @@ func (d *Document) Query(text string, options ...ExecOption) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	r, err := d.execute(p, false, o)
+	r, err := d.executeVM(p, false, o)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +107,7 @@ func Eval(source []byte, format, text string, options ...EvalOption) (*Result, e
 	if err != nil {
 		return nil, err
 	}
-	return d.execute(p, true, o.exec)
+	return d.executeVM(p, true, o.exec)
 }
 
 // Execute runs a compiled program and commits only if every statement succeeds.
@@ -118,40 +117,7 @@ func (d *Document) Execute(p *Program, options ...ExecOption) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return d.execute(p, true, o)
-}
-func (d *Document) execute(p *Program, wantBytes bool, options execOptions) (*Result, error) {
-	return d.executeVM(p, wantBytes, options)
-}
-
-// executeAST is the reference interpreter kept for differential tests.
-func (d *Document) executeAST(p *Program, wantBytes bool, options execOptions) (*Result, error) {
-	if p == nil || p.program == nil {
-		return nil, errProgram
-	}
-	if d == nil || d.root == nil || d.format == nil {
-		return nil, errors.New("uninitialized document")
-	}
-	bindings, err := options.bindings(p)
-	if err != nil {
-		return nil, err
-	}
-	if bindings == nil {
-		bindings = map[string]*binding{}
-	}
-	work := &Document{source: d.source, root: d.root, format: d.format}
-	work.runtime = newRuntime(work, bindings)
-	work.state = work.runtime
-	result := &Result{Values: []any{}}
-	if _, err := work.runtime.block(p.program.Statements, false, result); err != nil {
-		return nil, err
-	}
-	if wantBytes {
-		result.Bytes = bytes.Clone(work.source)
-	}
-	result.Changed = !bytes.Equal(d.source, work.source)
-	d.source, d.root = work.source, work.root
-	return result, nil
+	return d.executeVM(p, true, o)
 }
 
 // executeVM runs the compiled bytecode on a work copy.

@@ -81,7 +81,7 @@ conformance:
 	go test ./conformance -count=1
 
 bench-bytecode:
-	go test -run '^$$' -bench 'Benchmark(AST|VM|CompileProgram|LoadProgram|DisassembleProgram|AssembleProgram)' -benchmem -count=10 .
+	go test -run '^$$' -bench 'Benchmark(VM|CompileProgram|LoadProgram|DisassembleProgram|AssembleProgram)' -benchmem -count=10 .
 
 yaml-suite:
 	go test ./conformance -run '^TestYAMLTestSuite$$' -count=1

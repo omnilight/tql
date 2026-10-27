@@ -7,8 +7,7 @@ import (
 
 // Program is an immutable compiled TQL program, safe for concurrent reuse.
 type Program struct {
-	program *query.Program
-	code    *bytecode.Program
+	code *bytecode.Program
 }
 
 // Compile parses a query or script into an immutable, reusable Program.
@@ -21,7 +20,7 @@ func Compile(text string) (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Program{program: p, code: code}, nil
+	return &Program{code: code}, nil
 }
 
 // LoadProgram validates and loads a bytecode image produced by MarshalBinary.
@@ -47,10 +46,7 @@ func (p *Program) Mutates() bool {
 	if p == nil {
 		return false
 	}
-	if p.code != nil {
-		return p.code.Mutates
-	}
-	return p.program != nil && p.program.Mutates()
+	return p.code != nil && p.code.Mutates
 }
 
 // Disassemble returns canonical, re-assemblable bytecode text. Lines beginning

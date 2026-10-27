@@ -1,29 +1,31 @@
 # Bytecode performance and SIMD
 
-The VM is the default engine. Expression-heavy work is much faster than the AST
-engine; edit-heavy work is neutral because parsing, editing, reparsing and
-verification dominate.
+The VM is the only execution engine. The AST interpreter was removed after the
+VM became the production path; the comparison below is the measured result from
+that migration and is historical. Edit-heavy work stays neutral because parsing,
+editing, reparsing and verification dominate it.
 
 ## Measured results
 
-Apple M3 Pro, macOS arm64, Go 1.27.1, 2026-10-28:
+Apple M3 Pro, macOS arm64, Go 1.27.1, 2026-10-28. Medians of three 500 ms runs;
+the AST column is historical and no longer reproducible from the repository.
 
-| Workload | AST | VM | Change | Allocations |
+| Workload | VM | Previous AST | VM advantage | Allocations (AST → VM) |
 | --- | ---: | ---: | ---: | ---: |
-| Compiled read, 1,000 services | ~100–280 µs | ~16 µs | ~85–90% faster | 7,015 → 4 |
-| Filter + project, 1,000 | ~100 µs | ~32 µs | ~68% faster | 7,044 → 16 |
-| Read loop, 10 items | ~5.5 µs | ~1.5 µs | ~73% faster | 183 → 25 |
-| Nested read loops, 10 × 10 | ~60 µs | ~10 µs | ~83% faster | 1,689 → 144 |
-| `walk` update | ~20 µs | ~14 µs | ~30% faster | 456 → 298 |
-| Mutation loop, 128 items | ~2–3.5 ms | ~2–3.4 ms | neutral | 62,651 → 61,105 |
-| One-shot edit, 1,000 services | ~1.3–2.2 ms | ~1.3–2.3 ms | neutral | ~40,100 |
-| OpenAPI 3.0→3.1 check, 50 schemas | ~2.3 ms | ~1.2 ms | ~45% faster | 31,272 → 15,821 |
-| OpenAPI 3.0→3.1 apply, 50 schemas | ~27 ms | ~28 ms | neutral | 686,784 → 670,992 |
+| Compiled read, 1,000 services | ~19 µs | ~221 µs | ~91% faster | 7,015 → 4 |
+| Filter + project, 1,000 | ~41 µs | ~135 µs | ~70% faster | 7,044 → 16 |
+| Read loop, 10 items | ~1.1 µs | ~4.4 µs | ~76% faster | 183 → 24 |
+| Nested read loops, 10 × 10 | ~9.4 µs | ~45 µs | ~79% faster | 1,689 → 143 |
+| `walk` update | ~10 µs | ~13 µs | ~23% faster | 456 → 297 |
+| Mutation loop, 128 items | ~2.3 ms | ~2.6 ms | near neutral | 62,651 → 61,104 |
+| One-shot edit, 1,000 services | ~1.07 ms | ~1.07 ms | neutral | ~40,100 |
+| OpenAPI 3.0→3.1 check, 50 schemas | ~0.60 ms | ~1.13 ms | ~47% faster | 31,272 → 15,821 |
+| OpenAPI 3.0→3.1 apply, 50 schemas | ~26 ms | ~25 ms | neutral | 686,789 → 670,992 |
 
-The AST read range reflects machine noise across sessions. The VM direction is
-stable; edit-heavy rows are neutral, not a reliable fine-grained timing signal.
-`LoadProgram` is about 2.3 µs for the benchmark program versus about 3.2 µs for
-`Compile` (99 → 39 allocations).
+Read-heavy rows are stable in direction but vary with machine noise. Edit-heavy
+rows are neutral, not a reliable fine-grained timing signal. `LoadProgram` is
+about 2.3 µs for the benchmark program versus about 3.2 µs for `Compile`
+(99 → 39 allocations).
 
 ## Workloads
 
@@ -39,8 +41,7 @@ stable; edit-heavy rows are neutral, not a reliable fine-grained timing signal.
 | `OpenAPI31Check` | Read-only schema-rule scan over 50 generated OpenAPI schemas |
 | `OpenAPI31` | Apply the OpenAPI 3.0→3.1 recipe to the same document |
 
-Keep the AST variants only while the reference interpreter exists. The VM
-variants use the same source, document and program.
+The benchmark names use the `VM` prefix and run against the only engine.
 
 ## How to reproduce
 

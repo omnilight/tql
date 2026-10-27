@@ -135,9 +135,10 @@ Source bytes and linked trees are shared immutably between edits; public `Docume
 and `Result.Bytes` return independent copies.
 
 `Compile` lowers the parsed TQL AST to bytecode in `internal/bytecode`. Execution
-uses a register VM with stream and scalar operands; the AST interpreter remains a
-reference engine for differential tests. Compiled bytecode is immutable and holds
-constant parameter defaults, not mutable execution state. Before executing
+uses a register VM with stream and scalar operands. The AST is discarded after
+compilation; `internal/query` parses scripts and builds compiler input, not a
+second evaluator. Compiled bytecode is immutable and holds constant parameter
+defaults, not mutable execution state. Before executing
 statements, the engine validates supplied parameter names, checks required inputs,
 and creates independent read-only parameter trees. `WithParams` captures caller values as a normalized deep snapshot;
 each execution builds its own nodes from that snapshot. Read-only checks follow

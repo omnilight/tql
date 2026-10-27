@@ -279,7 +279,7 @@ tql --assemble migration.tqla config.yaml
 - No `encoding/gob`, `unsafe` decoding or pointer values in the format.
 - Debug metadata contains parameter, slot and code names and statement indexes;
   it contains neither TQL source text nor document contents.
-- A format/opcode mismatch is an error. There is no silent AST fallback for a
+- A format/opcode mismatch is an error. There is no silent fallback for a
   loaded image.
 
 ## Testing

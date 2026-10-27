@@ -86,7 +86,7 @@ func (p *parser) parameter() error {
 		if !constant(e) {
 			return p.err("parameter default must be a constant value")
 		}
-		param.Default, err = One(e, nil, nil)
+		param.Default, err = constantValue(e)
 		if err != nil {
 			return err
 		}

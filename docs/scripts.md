@@ -287,7 +287,7 @@ while $i < length(items) {
 ```
 
 `while` evaluates its condition before each iteration. Each execution is limited
-to 100,000 interpreter steps, including statements and loop checks/transitions.
+to 100,000 VM steps, including statements and loop checks/transitions.
 This is not a count of document nodes. An empty infinite loop also fails at the
 limit. Block nesting is limited to 128 levels and expression nesting to 256.
 The step limit is not a time or memory bound for an individual expression.
