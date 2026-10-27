@@ -497,6 +497,9 @@ func FuzzExec(f *testing.F) {
 		`let $i = 0; while $i < 3 { a[$i] += 1; $i += 1; }`,
 		`for $node in walk(.) { if type($node) == "number" { $node += 1; } }`,
 		`let $copy = a; for $x in $copy[] { if $x == 2 { del($x); } } b = $copy`,
+		`param $delta = 2; a[] += $delta`,
+		`param $settings = {items:[1,2]}; for $x in $settings.items[] { $x += 1 }`,
+		`param $required; a = $required`,
 	} {
 		f.Add(query)
 	}

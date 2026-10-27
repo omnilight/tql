@@ -90,6 +90,9 @@ YAML documents.
 | `--values` | Print read results even when the program contains mutations |
 | `--check` | Print and write nothing; report whether source bytes would change |
 | `--query-file FILE` | Read the TQL program from a file |
+| `--arg NAME=VALUE` | Bind a string input parameter; repeat for different names |
+| `--argjson NAME=JSON` | Bind one JSON value as an input parameter |
+| `--params-file FILE` | Read input parameters from a JSON object; explicit flags override it |
 | `--version` | Print the build version (`dev` unless set at build time) |
 | `-h`, `--help` | Show help |
 
@@ -185,3 +188,49 @@ tql --values --query-file examples/migrate.tql config.toml
 The whole script, including every loop iteration, is one transaction. See the
 [scripting guide](scripts.md) for variables, control flow, and tree traversal, or
 the [language reference](syntax.md) for expression syntax.
+
+## Input parameters
+
+Declare inputs with `param` in the query or script file:
+
+```sh
+tql --arg name=alice --argjson enabled=true \
+    'param $name; param $enabled = false; users[name == $name].enabled = $enabled' \
+    config.yaml
+```
+
+`--arg` always binds a string: `--arg version=001` supplies `"001"`, and
+`--arg enabled=false` supplies `"false"`. Use `--argjson` for typed values:
+
+```sh
+tql -f json --argjson 'settings={"timeout":30,"ports":[80,443]}' \
+    'param $settings; server = $settings' < config.json
+```
+
+JSON is parsed as data, with exact numbers and duplicate-key rejection, using
+TQL's JSON parser. Expressions such as `count=1+2` are not JSON. Split `NAME=VALUE`
+at the first `=`; the rest belongs to the value. Names omit `$` and must be valid
+TQL variable identifiers. Flags precede the query and input filename as usual.
+
+A parameters file contains a single JSON object, for example:
+
+```json
+{"service":"api","image":"api:v2","replicas":3}
+```
+
+```sh
+tql -i --params-file production.json --arg image=api:v3 \
+    --query-file rollout.tql compose.yaml
+```
+
+Defaults in the script have the lowest priority, followed by the parameters file,
+then explicit `--arg` / `--argjson` flags, regardless of flag order. Explicit
+`null` overrides a default. Repeating a name across CLI flags is an error,
+including across `--arg` and `--argjson`. Only one `--params-file` is accepted;
+it must be a file path, since stdin is reserved for the input document.
+
+Missing required inputs, unknown names, and malformed parameter values exit with
+status `2`, without script output or an in-place write. Parameters work with
+inline queries, `--query-file`, stdin documents, `--values`, `--raw`, `--check`,
+and `--in-place`. See [parameter semantics](scripts.md#input-parameters) and the
+[runnable example](../examples/parameters/README.md).

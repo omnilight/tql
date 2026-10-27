@@ -134,8 +134,14 @@ whole program succeeds. An error rolls back earlier statements and script output
 Source bytes and linked trees are shared immutably between edits; public `Document.Bytes()`
 and `Result.Bytes` return independent copies.
 
-Compiled programs contain the TQL AST, not mutable execution state. Each execution
-creates its own lexical scopes and variables. `let` variables hold value snapshots;
+Compiled programs contain the TQL AST and constant parameter defaults, not mutable
+execution state. Before executing statements, the engine validates supplied
+parameter names, checks required inputs, and creates independent read-only
+parameter trees. `WithParams` captures caller values as a normalized deep snapshot;
+each execution builds its own nodes from that snapshot. Read-only checks follow
+tree ownership, including loop references and insertion targets.
+Each execution creates its own lexical scopes and variables. `let` variables hold
+value snapshots;
 `for` variables can refer to selected document nodes. Deleting an array element
 adjusts remaining reference indexes, and deleted descendants become unavailable.
 A loop therefore continues to refer to its original selected nodes after reparsing.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.4.0
+
+- Add reusable script parameters with `param`, defaults, and read-only values,
+  supplied through CLI flags or `tql.WithParams` in Go.
+
 ## v0.3.0
 
 - Add optional Go 1.27 SIMD scanning for JSON, TOML, YAML and query strings on

@@ -4,7 +4,8 @@ TQL operates on objects, arrays, strings, numbers, booleans, `null`, and TOML
 date/time values. Keys are case-sensitive. Pass a query as one CLI argument,
 usually in single shell quotes, or load a program with `--query-file`.
 
-For variables, conditions, and loops, see the [scripting guide](scripts.md).
+For input parameters, variables, conditions, and loops, see the
+[scripting guide](scripts.md).
 
 ## Paths and streams
 
@@ -210,7 +211,8 @@ This abbreviated grammar shows the language's main forms. Operator precedence is
 listed above; block and selector behavior is explained in the scripting guide.
 
 ```ebnf
-program     = { statement } ;
+program     = { parameter }, { statement } ;
+parameter   = "param", variable, [ "=", constant ], [ ";" ] ;
 statement   = simple, [ ";" ] | conditional | for_loop | while_loop ;
 simple      = "let", variable, "=", expression
             | "del(", expression, { ",", expression }, ")"
@@ -219,7 +221,7 @@ simple      = "let", variable, "=", expression
 conditional = "if", expression, block, [ "else", ( conditional | block ) ] ;
 for_loop    = "for", variable, "in", expression, block ;
 while_loop  = "while", expression, block ;
-block       = "{", program, "}" ;
+block       = "{", { statement }, "}" ;
 assignment  = "=" | "|=" | "+=" | "-=" | "*=" | "/=" | "??=" ;
 expression  = prefix, { binary_operator, prefix } ;
 prefix      = literal | object | array | path | call
@@ -229,6 +231,11 @@ step        = ".", ( identifier | "*" )
             | "[]" ;
 slice       = [ integer ], ":", [ integer ] ;
 ```
+
+Parameter declarations require semicolons except at the end of the program.
+They precede all ordinary statements and cannot occur inside blocks. A default
+is a scalar literal (numbers may have a sign), or an array/object of constants.
+See [input parameters](scripts.md#input-parameters) for binding rules.
 
 Consecutive simple statements require semicolons; they may be omitted before `}`
 or at the end of the program. Expression nesting is limited to 256 levels, block

@@ -145,6 +145,9 @@ func change(v any, a address, fn func(any) any) any {
 	return m
 }
 func (d *Document) mutateOwned(owner *binding, op string, n *syntax.Node, key string, v any) error {
+	if err := writable(owner); err != nil {
+		return err
+	}
 	if owner == nil {
 		return d.mutate(op, n, key, v)
 	}

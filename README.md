@@ -145,6 +145,26 @@ dynamic indexes, and recursive traversal with `walk()`. If any statement fails,
 the entire execution is rolled back. The [scripting guide](docs/scripts.md)
 explains scopes, iteration, and execution limits.
 
+Declare inputs to reuse a script with different parameters:
+
+```tql
+param $service;
+param $image;
+param $replicas = 2;
+
+services[$service].image = $image;
+services[$service].deploy.replicas = $replicas;
+```
+
+```sh
+tql --arg service=api --arg image=api:v2 --argjson replicas=3 \
+    --query-file rollout.tql compose.yaml
+```
+
+Parameters are read-only values, checked before execution. Use `--params-file`
+for a JSON object of inputs, or `tql.WithParams` with the Go execution APIs.
+See [script parameters](docs/scripts.md#input-parameters) for defaults and scope.
+
 ## Use the Go library
 
 ```go

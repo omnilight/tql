@@ -39,8 +39,15 @@ const (
 // Set constructs an assignment, capturing a normalized snapshot of value.
 // Invalid values or paths are reported when the command is applied or exported.
 func Set(path Path, value any) Operation {
-	v, err := normalize(value, make(map[visit]bool), 0)
+	v, err := NormalizeValue(value)
 	return editmodel.New(SetOperation, path, v, err)
+}
+
+// NormalizeValue validates a Go value and returns an independent TQL value tree.
+// Integers and finite floats become Number values; containers are copied deeply.
+// Unsupported types, cycles, invalid strings and excessive nesting are errors.
+func NormalizeValue(value any) (any, error) {
+	return normalize(value, make(map[visit]bool), 0)
 }
 
 // Del constructs a deletion. Missing targets are no-ops; deleting the root is

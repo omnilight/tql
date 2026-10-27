@@ -7,12 +7,21 @@ import (
 	"github.com/vasileknik76/tql/syntax"
 )
 
-// Script state is private to one execution. Compiled programs contain no values
-// or cursors and can therefore be reused concurrently.
+// Script state is private to one execution. Compiled programs contain only the
+// AST and immutable defaults, and can therefore be reused concurrently.
 type binding struct {
-	value *syntax.Node
-	ref   *nodeRef
+	value    *syntax.Node
+	ref      *nodeRef
+	readonly string
 }
+
+func writable(owner *binding) error {
+	if owner != nil && owner.readonly != "" {
+		return fmt.Errorf("parameter $%s is read-only", owner.readonly)
+	}
+	return nil
+}
+
 type nodeRef struct {
 	owner *binding
 	path  address
@@ -34,8 +43,8 @@ const (
 )
 const scriptStepLimit = 100000
 
-func newRuntime(d *Document) *scriptRuntime {
-	return &scriptRuntime{doc: d, scopes: []map[string]*binding{{}}}
+func newRuntime(d *Document, inputs map[string]*binding) *scriptRuntime {
+	return &scriptRuntime{doc: d, scopes: []map[string]*binding{inputs}}
 }
 func (r *scriptRuntime) tick() error {
 	r.steps++
