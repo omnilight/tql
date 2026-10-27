@@ -136,6 +136,9 @@ func (d *Document) executeAST(p *Program, wantBytes bool, options execOptions) (
 	if err != nil {
 		return nil, err
 	}
+	if bindings == nil {
+		bindings = map[string]*binding{}
+	}
 	work := &Document{source: d.source, root: d.root, format: d.format}
 	work.runtime = newRuntime(work, bindings)
 	work.state = work.runtime

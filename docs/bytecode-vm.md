@@ -317,6 +317,7 @@ Path and composition ops:
 | `JUMP_IF_NOT_NULL src, target` | Read nullness from a scalar; used by `??` |
 | `PIPE dst, src, code` | Evaluate `code` for each node in `src`, with that node as current input; concatenate |
 | `FILTER_STREAM dst, src, code` | Evaluate a scalar predicate for each node in `src`; keep nodes whose predicate is truthy |
+| `FILTER_MATCH dst, src, match` | Evaluate a simple key/index/literal filter without a nested frame |
 | `CALL dst, name, args` | Built-in call; args are `ARG` registers |
 | `SELECT dst, code` | Evaluate predicate code (ending in a scalar); return the current input stream if truthy |
 | `TREE dst, name, args` | `walk`, `path`, or `key`; args are full streams |
@@ -360,7 +361,7 @@ type pathPlan struct {
 }
 
 type stepPlan struct {
-    step      query.Step // key, index, wildcard, slice, filter, dynamic
+    step      query.Step // key, index, wildcard, slice, filter, dynamic, match
     selector  *code      // Kind == dynamic
     predicate *code      // Kind == filter
 }
@@ -372,6 +373,12 @@ would fail at different steps. Simple steps call `query.Step.Eval` directly,
 which keeps the exact key/index/wildcard/slice rules in one place. Filter and
 dynamic steps use their compiled sub-codes. Assignment uses the same plan for
 `Resolve` and `Eval`, so creation, target selection, and reads cannot drift.
+
+A simple filter—one key/index lookup followed by truthiness or a comparison with a
+literal—is compiled as a `MatchPlan` instead of a sub-code. The VM evaluates it
+directly in `FILTER_MATCH` or a path `match` step. Complex predicates keep the
+general `FILTER_STREAM`/filter sub-code path, so error ordering and multi-value
+predicate semantics stay unchanged.
 
 `query.Step.Eval` on a dynamic step currently resolves the selector first; the VM
 does the same through a new `query.SelectorStep(value any) (query.Step, error)`

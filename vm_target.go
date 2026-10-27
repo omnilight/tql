@@ -108,6 +108,33 @@ func (v *scriptVM) appendStep(out []*syntax.Node, step bytecode.Step, n *syntax.
 			resolved = bytecode.Step{Kind: bytecode.StepIndex, Index: q.Index}
 		}
 		return v.appendStep(out, resolved, n)
+	case bytecode.StepMatch:
+		plan := v.prog.Matches[step.Code]
+		switch n.Kind {
+		case syntax.Array:
+			for _, item := range n.Items {
+				keep, err := v.match(&plan, item)
+				if err != nil {
+					return nil, err
+				}
+				if keep {
+					out = append(out, item)
+				}
+			}
+		case syntax.Object:
+			for _, entry := range n.Entries {
+				keep, err := v.match(&plan, entry.Value)
+				if err != nil {
+					return nil, err
+				}
+				if keep {
+					out = append(out, entry.Value)
+				}
+			}
+		default:
+			return nil, fmt.Errorf("cannot iterate %s", n.Kind)
+		}
+		return out, nil
 	case bytecode.StepFilter:
 		switch n.Kind {
 		case syntax.Array:
@@ -139,6 +166,46 @@ func (v *scriptVM) appendStep(out []*syntax.Node, step bytecode.Step, n *syntax.
 	}
 }
 
+func (v *scriptVM) match(plan *bytecode.MatchPlan, item *syntax.Node) (bool, error) {
+	var value *syntax.Node
+	if plan.IsIndex {
+		if item.Kind == syntax.Null {
+			value = nil
+		} else if item.Kind != syntax.Array {
+			return false, fmt.Errorf("cannot index %s", item.Kind)
+		} else {
+			index := int(plan.Index)
+			if index < 0 {
+				index += len(item.Items)
+			}
+			if index >= 0 && index < len(item.Items) {
+				value = item.Items[index]
+			}
+		}
+	} else {
+		key := v.prog.Consts[plan.KeyConst].Text
+		if item.Kind == syntax.Null {
+			value = nil
+		} else if item.Kind != syntax.Object {
+			return false, fmt.Errorf("cannot access field %q on %s", key, item.Kind)
+		} else {
+			value = item.Get(key)
+		}
+	}
+	var got any
+	if value != nil {
+		got = value.Interface()
+	}
+	if !plan.HasValue {
+		return query.Truth(got), nil
+	}
+	result, err := query.Operation(v.prog.Consts[plan.OpConst].Text, got, v.prog.Consts[plan.ValueConst].Value)
+	if err != nil {
+		return false, err
+	}
+	return query.Truth(result), nil
+}
+
 func pathCapacity(nodes []*syntax.Node, step bytecode.Step) int {
 	// Key, index and dynamic steps usually emit at most one value per input.
 	// Starting small avoids allocating a full-size slice for the common
@@ -158,7 +225,7 @@ func pathCapacity(nodes []*syntax.Node, step bytecode.Step) int {
 			case syntax.Object:
 				count = len(n.Entries)
 			}
-		case bytecode.StepFilter:
+		case bytecode.StepFilter, bytecode.StepMatch:
 			switch n.Kind {
 			case syntax.Array:
 				count = len(n.Items)
@@ -167,8 +234,8 @@ func pathCapacity(nodes []*syntax.Node, step bytecode.Step) int {
 			}
 			// Filters often select a small subset; do not reserve the whole
 			// container. A larger result grows normally.
-			if count > 32 {
-				count = 32
+			if count > 16 {
+				count = 16
 			}
 		case bytecode.StepSlice:
 			if n.Kind == syntax.Array {
@@ -256,7 +323,7 @@ func (v *scriptVM) resolveStep(step bytecode.Step, n *syntax.Node) (query.Step, 
 			return query.Step{}, fmt.Errorf("dynamic selector requires exactly one string or integer")
 		}
 		return query.SelectorStep(selector.nodes[0].Interface())
-	case bytecode.StepFilter:
+	case bytecode.StepFilter, bytecode.StepMatch:
 		return query.Step{Kind: "filter"}, nil
 	default:
 		return query.Step{}, fmt.Errorf("invalid bytecode: path step %d", step.Kind)

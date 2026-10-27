@@ -235,13 +235,13 @@ Medians from that run:
 
 | Workload | AST | VM | Change | Allocations |
 | --- | ---: | ---: | ---: | --- |
-| `CompiledRead` | ~171 µs | ~68 µs | ~60% faster | 7,015 → 5 |
-| `ScriptFilter` | ~112 µs | ~63 µs | ~44% faster | 7,044 → 17 |
-| `ScriptReadLoop` | ~5.5 µs | ~1.3 µs | ~77% faster | 183 → 25 |
-| `ScriptNestedReadLoops` | ~57 µs | ~9.2 µs | ~84% faster | 1,689 → 144 |
-| `ScriptWalk` | ~16.5 µs | ~13.0 µs | ~21% faster | 456 → 305 |
-| `ScriptForLoop` | ~1.99 ms | ~1.96 ms | neutral | 62,651 → 61,105 |
-| `OneShotEdit` | ~1.34 ms | ~1.34 ms | neutral | ~40,100 |
+| `CompiledRead` | ~100–280 µs | ~16 µs | ~85–90% faster | 7,015 → 4 |
+| `ScriptFilter` | ~100 µs | ~32 µs | ~68% faster | 7,044 → 16 |
+| `ScriptReadLoop` | ~5.5 µs | ~1.5 µs | ~73% faster | 183 → 25 |
+| `ScriptNestedReadLoops` | ~60 µs | ~10 µs | ~83% faster | 1,689 → 144 |
+| `ScriptWalk` | ~20 µs | ~14 µs | ~30% faster | 456 → 298 |
+| `ScriptForLoop` | ~2–3.5 ms | ~2–3.4 ms | neutral | 62,651 → 61,105 |
+| `OneShotEdit` | ~1.3–2.2 ms | ~1.3–2.3 ms | neutral | ~40,100 |
 
 `LoadProgram` measured about 2.3 µs for the benchmark program versus about 3.2 µs
 for `Compile` (99 → 39 allocations).
@@ -252,9 +252,13 @@ dominate; they are not regressions. These are measurements of one machine and
 one revision, not guarantees. Rerun the command before claiming a change.
 
 The largest wins came from compiling filter predicates to scalar truth values
-instead of rebuilding a boolean node per element, single-node path fast paths,
+instead of rebuilding a boolean node per element, specializing simple key/literal
+filters into `FILTER_MATCH`/path match steps, primitive equality fast paths,
+single-node path fast paths,
 integer arithmetic before `math/big`, read-only loop bindings without reference
 state, direct scalar reads, and a pooled VM/frame reset across executions.
+The edit-heavy rows vary with machine load; they are neutral rather than a
+reliable timing signal.
 
 ## Implementation status
 

@@ -366,6 +366,20 @@ func (v *scriptVM) runFrame(f *vmFrame) error {
 				out = append(out, part.nodes...)
 			}
 			v.reg(f, op.A).setStream(out)
+		case bytecode.OpFilterMatch:
+			src := v.stream(f, op.B)
+			out := make([]*syntax.Node, 0, len(src))
+			plan := v.prog.Matches[op.C]
+			for _, n := range src {
+				keep, err := v.match(&plan, n)
+				if err != nil {
+					return err
+				}
+				if keep {
+					out = append(out, n)
+				}
+			}
+			v.reg(f, op.A).setStream(out)
 		case bytecode.OpFilterStream:
 			out := make([]*syntax.Node, 0, len(v.stream(f, op.B)))
 			for _, n := range v.stream(f, op.B) {

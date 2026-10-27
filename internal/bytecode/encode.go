@@ -27,6 +27,7 @@ const (
 	sectionScope     = 9
 	sectionLoop      = 10
 	sectionCode      = 11
+	sectionMatch     = 12
 )
 
 // Encode returns a deterministic, versioned bytecode image.
@@ -114,7 +115,7 @@ func Encode(p *Program) ([]byte, error) {
 					if step.HasTo {
 						w.i32(int32(step.To))
 					}
-				case StepFilter, StepDynamic:
+				case StepFilter, StepDynamic, StepMatch:
 					w.i32(step.Code)
 				case StepWildcard:
 				default:
@@ -202,6 +203,20 @@ func Encode(p *Program) ([]byte, error) {
 				w.i32(op.D)
 				w.i32(op.Stmt)
 			}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := writeSection(&payload, sectionMatch, func(w *writer) error {
+		w.u32(uint32(len(p.Matches)))
+		for _, match := range p.Matches {
+			w.i32(match.KeyConst)
+			w.i32(match.Index)
+			w.u8(boolByte(match.IsIndex))
+			w.i32(match.OpConst)
+			w.i32(match.ValueConst)
+			w.u8(boolByte(match.HasValue))
 		}
 		return nil
 	}); err != nil {

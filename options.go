@@ -105,6 +105,9 @@ func (o execOptions) bindings(p *Program) (map[string]*binding, error) {
 			return nil, fmt.Errorf("unknown parameter %q", unknown[0])
 		}
 	}
+	if len(params) == 0 {
+		return nil, nil
+	}
 	values := make(map[string]*binding, len(params))
 	for _, param := range params {
 		value, supplied := o.params[param.Name]

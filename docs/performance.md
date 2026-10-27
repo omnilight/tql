@@ -15,13 +15,13 @@ On an Apple M3 Pro, macOS arm64, Go 1.27.1 (2026-10-27), with
 
 | Workload | AST | VM | Change | Allocations |
 | --- | ---: | ---: | ---: | ---: |
-| Compiled read, 1,000 services | ~171 µs | ~68 µs | ~60% faster | 7,015 → 5 |
-| Filter and project, 1,000 services | ~112 µs | ~63 µs | ~44% faster | 7,044 → 17 |
-| Read loop, 10 items | ~5.5 µs | ~1.3 µs | ~77% faster | 183 → 25 |
-| Nested read loops, 10 × 10 | ~57 µs | ~9.2 µs | ~84% faster | 1,689 → 144 |
-| `walk` update | ~16.5 µs | ~13.0 µs | ~21% faster | 456 → 305 |
-| Mutation loop, 128 items | ~1.99 ms | ~1.96 ms | neutral | 62,651 → 61,105 |
-| One-shot edit, 1,000 services | ~1.34 ms | ~1.34 ms | neutral | ~40,100 |
+| Compiled read, 1,000 services | ~100–280 µs | ~16 µs | ~85–90% faster | 7,015 → 4 |
+| Filter and project, 1,000 services | ~100 µs | ~32 µs | ~68% faster | 7,044 → 16 |
+| Read loop, 10 items | ~5.5 µs | ~1.5 µs | ~73% faster | 183 → 25 |
+| Nested read loops, 10 × 10 | ~60 µs | ~10 µs | ~83% faster | 1,689 → 144 |
+| `walk` update | ~20 µs | ~14 µs | ~30% faster | 456 → 298 |
+| Mutation loop, 128 items | ~2–3.5 ms | ~2–3.4 ms | neutral | 62,651 → 61,105 |
+| One-shot edit, 1,000 services | ~1.3–2.2 ms | ~1.3–2.3 ms | neutral | ~40,100 |
 
 Expression-heavy work improves; edit-dominated work is neutral because document
 parsing and verification dominate. `length(string)` also has a SIMD rune-count

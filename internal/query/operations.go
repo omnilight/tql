@@ -30,6 +30,17 @@ func Equal(a, b any) bool {
 		return x == y
 	}
 	switch x := a.(type) {
+	case nil:
+		return b == nil
+	case string:
+		y, ok := b.(string)
+		return ok && x == y
+	case syntax.Temporal:
+		y, ok := b.(syntax.Temporal)
+		return ok && x == y
+	case bool:
+		y, ok := b.(bool)
+		return ok && x == y
 	case []any:
 		y, ok := b.([]any)
 		if !ok || len(x) != len(y) {

@@ -160,6 +160,23 @@ func (a *assembler) directive(line string) error {
 		}
 		a.prog.Slots = append(a.prog.Slots, name)
 		return nil
+	case ".match":
+		if len(args) < 2 {
+			return fmt.Errorf(".match expects an ID and a selector")
+		}
+		id, err := parseID(args[0], 'M')
+		if err != nil {
+			return err
+		}
+		if id != int32(len(a.prog.Matches)) {
+			return fmt.Errorf("match IDs must be contiguous")
+		}
+		match, err := parseMatch(args)
+		if err != nil {
+			return err
+		}
+		a.prog.Matches = append(a.prog.Matches, match)
+		return nil
 	case ".path":
 		if len(args) != 1 {
 			return fmt.Errorf(".path expects one ID")
@@ -390,6 +407,16 @@ func parseStep(line string) (Step, error) {
 			step.Kind = StepDynamic
 		}
 		step.Code = code
+	case "match":
+		if len(fields) != 3 {
+			return Step{}, fmt.Errorf("match step expects a match ID")
+		}
+		match, err := parseID(fields[2], 'M')
+		if err != nil {
+			return Step{}, err
+		}
+		step.Kind = StepMatch
+		step.Code = match
 	default:
 		return Step{}, fmt.Errorf("unknown step kind %q", fields[1])
 	}
@@ -451,6 +478,62 @@ func parseTarget(line string) (TargetPlan, error) {
 		return TargetPlan{}, fmt.Errorf("unknown target kind %q", fields[2])
 	}
 	return target, nil
+}
+
+func parseMatch(args []string) (MatchPlan, error) {
+	if len(args) < 2 {
+		return MatchPlan{}, fmt.Errorf(".match expects an ID and a selector")
+	}
+	id, err := parseID(args[0], 'M')
+	if err != nil {
+		return MatchPlan{}, err
+	}
+	_ = id
+	match := MatchPlan{OpConst: -1, ValueConst: -1}
+	for _, field := range args[1:] {
+		parts := strings.SplitN(field, "=", 2)
+		if len(parts) == 1 {
+			if parts[0] == "truth" {
+				continue
+			}
+			return MatchPlan{}, fmt.Errorf("invalid match field %q", field)
+		}
+		switch parts[0] {
+		case "key":
+			match.KeyConst, err = parseID(parts[1], 'K')
+			if err != nil {
+				return MatchPlan{}, err
+			}
+		case "index":
+			value, e := strconv.Atoi(parts[1])
+			if e != nil {
+				return MatchPlan{}, e
+			}
+			match.Index = int32(value)
+			match.IsIndex = true
+		case "op":
+			match.OpConst, err = parseID(parts[1], 'K')
+			if err != nil {
+				return MatchPlan{}, err
+			}
+			match.HasValue = true
+		case "value":
+			match.ValueConst, err = parseID(parts[1], 'K')
+			if err != nil {
+				return MatchPlan{}, err
+			}
+			match.HasValue = true
+		default:
+			return MatchPlan{}, fmt.Errorf("unknown match field %q", parts[0])
+		}
+	}
+	if !match.IsIndex && match.KeyConst < 0 {
+		return MatchPlan{}, fmt.Errorf("match needs key or index")
+	}
+	if match.HasValue && (match.OpConst < 0 || match.ValueConst < 0) {
+		return MatchPlan{}, fmt.Errorf("match comparison needs op and value")
+	}
+	return match, nil
 }
 
 func parseLoop(args []string) (Loop, error) {
@@ -676,6 +759,15 @@ func parseOp(line string, stmt int32) (Op, error) {
 		}
 		if err == nil {
 			op.C, err = parseID(fields[3], 'C')
+		}
+	case "FILTER_MATCH":
+		op.Code = OpFilterMatch
+		op.A, err = reg(1)
+		if err == nil {
+			op.B, err = reg(2)
+		}
+		if err == nil {
+			op.C, err = parseID(fields[3], 'M')
 		}
 	case "CALL":
 		op.Code = OpCall

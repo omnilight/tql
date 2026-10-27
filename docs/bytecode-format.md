@@ -152,8 +152,9 @@ section := id u16 | flags u16 | length u32 | data[length]
 | 9 | `SCOPE` | Lexical slot ranges |
 | 10 | `LOOP` | Loop descriptors |
 | 11 | `CODE` | Code objects: main first, sub-codes addressed by index |
+| 12 | `MATCH` | Simple key/index filter plans for path and select filters |
 
-The current reader requires sections 1–11 in ascending order. A future `DEBUG`
+The current reader requires sections 1–12 in ascending order. A future `DEBUG`
 section would receive a new ID and a format-version bump. Unknown sections are
 rejected; duplicate or out-of-order sections are rejected.
 
@@ -295,7 +296,10 @@ Directives:
 | `.const KN texts ["..."]` | Object key set |
 | `.slot SN "name"` | Lexical slot name |
 | `.path PN` | Start a path plan; following `.step` lines add steps |
-| `.step key "k"`, `.step index N`, `.step wildcard`, `.step slice FROM TO`, `.step filter CN`, `.step dynamic CN` | One path step; `*` means an omitted slice bound |
+| `.step key "k"`, `.step index N`, `.step wildcard`, `.step slice FROM TO`, `.step filter CN`, `.step dynamic CN`, `.step match MN` | One path step; `*` means an omitted slice bound |
+| `.match MN key=K0 truth` | Truthiness match on a key |
+| `.match MN key=K0 op=K1 value=K2` | Comparison of a key with a literal |
+| `.match MN index=N truth` / `... op=K1 value=K2` | Match on an array index |
 | `.target TN path root=BOOL base=N path=PN` | Path target; `base=-1` means current input |
 | `.target TN expr CN` | General expression target |
 | `.argset AN [registers]` | Register list for calls, objects, arrays and tree functions |

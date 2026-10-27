@@ -13,7 +13,7 @@ for $item in items[name == "api"] {
     if $item.enabled { $item.port += $delta; $count += 1 }
 }
 while $count < 10 { $count += 1 }
-$count
+services[] | select(.enabled) | .port
 `)
 	text := Disassemble(p)
 	got, err := Assemble(text)

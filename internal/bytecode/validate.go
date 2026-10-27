@@ -71,12 +71,17 @@ func Validate(p *Program) error {
 			return fmt.Errorf("path %d has too many steps", i)
 		}
 		for _, step := range path.Steps {
-			if step.Kind > StepDynamic {
+			if step.Kind > StepMatch {
 				return fmt.Errorf("path %d: unknown step kind", i)
 			}
 			if step.Kind == StepFilter || step.Kind == StepDynamic {
 				if step.Code < 0 || int(step.Code) >= len(p.Codes) {
 					return fmt.Errorf("path %d: code %d out of range", i, step.Code)
+				}
+			}
+			if step.Kind == StepMatch {
+				if step.Code < 0 || int(step.Code) >= len(p.Matches) {
+					return fmt.Errorf("path %d: match %d out of range", i, step.Code)
 				}
 			}
 		}
@@ -93,6 +98,21 @@ func Validate(p *Program) error {
 		}
 		if target.Kind == TargetPath && (target.Path < 0 || int(target.Path) >= len(p.Paths)) {
 			return fmt.Errorf("target %d: path out of range", i)
+		}
+	}
+	for i, match := range p.Matches {
+		if !match.IsIndex {
+			if match.KeyConst < 0 || int(match.KeyConst) >= len(p.Consts) || !p.Consts[match.KeyConst].TextSet {
+				return fmt.Errorf("match %d: key constant out of range", i)
+			}
+		}
+		if match.HasValue {
+			if match.OpConst < 0 || int(match.OpConst) >= len(p.Consts) || !matchOperator(p.Consts[match.OpConst].Text) {
+				return fmt.Errorf("match %d: operator out of range", i)
+			}
+			if match.ValueConst < 0 || int(match.ValueConst) >= len(p.Consts) {
+				return fmt.Errorf("match %d: value constant out of range", i)
+			}
 		}
 	}
 	for i, loop := range p.Loops {
@@ -325,6 +345,17 @@ func validateOp(p *Program, ci, oi int, code *Code, op Op) error {
 			return err
 		}
 		return sub(op.B)
+	case OpFilterMatch:
+		if err := reg(op.A); err != nil {
+			return err
+		}
+		if err := reg(op.B); err != nil {
+			return err
+		}
+		if op.C < 0 || int(op.C) >= len(p.Matches) {
+			return fmt.Errorf("code %d op %d: match %d out of range", ci, oi, op.C)
+		}
+		return nil
 	case OpFilterStream:
 		if err := reg(op.A); err != nil {
 			return err

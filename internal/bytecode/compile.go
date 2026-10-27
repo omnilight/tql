@@ -386,8 +386,13 @@ func (c *compiler) path(steps []query.Step) int32 {
 				item.To = *step.To
 			}
 		case "filter":
-			item.Kind = StepFilter
-			item.Code = c.subTruth(step.Predicate, "filter")
+			if match, ok := c.matchPlan(step.Predicate); ok {
+				item.Kind = StepMatch
+				item.Code = c.prog.AddMatch(match)
+			} else {
+				item.Kind = StepFilter
+				item.Code = c.subTruth(step.Predicate, "filter")
+			}
 		case "dynamic":
 			item.Kind = StepDynamic
 			item.Code = c.subStream(step.Predicate, "selector")
@@ -538,7 +543,9 @@ func (c *compiler) compileStream(e query.Expr, dst int32) error {
 			if err := c.compileStream(x.Left, src); err != nil {
 				return err
 			}
-			if selectPredicate, ok := fuseSelect(x.Right); ok {
+			if match, ok := c.matchFilter(x.Right); ok {
+				c.emit(Op{Code: OpFilterMatch, A: dst, B: src, C: match})
+			} else if selectPredicate, ok := fuseSelect(x.Right); ok {
 				predicate := c.subScalar(selectPredicate, "select")
 				c.emit(Op{Code: OpFilterStream, A: dst, B: src, C: predicate})
 			} else if steps, ok := fusePath(x.Right); ok {
@@ -744,6 +751,74 @@ func (c *compiler) callArgs(args []query.Expr, acquire bool) ([]int32, error) {
 func (c *compiler) releaseAll(regs []int32) {
 	for _, reg := range regs {
 		c.release(reg)
+	}
+}
+
+func (c *compiler) matchFilter(e query.Expr) (int32, bool) {
+	call, ok := e.(query.Call)
+	if !ok || call.Name != "select" || len(call.Args) != 1 {
+		return 0, false
+	}
+	match, ok := c.matchPlan(call.Args[0])
+	if !ok {
+		return 0, false
+	}
+	return c.prog.AddMatch(match), true
+}
+
+func (c *compiler) matchPlan(e query.Expr) (MatchPlan, bool) {
+	plan := MatchPlan{OpConst: -1, ValueConst: -1}
+	if step, ok := simpleMatchPath(e); ok {
+		if step.Kind == "index" {
+			plan.IsIndex = true
+			plan.Index = int32(step.Index)
+		} else {
+			plan.KeyConst = c.prog.AddText(step.Key)
+		}
+		return plan, true
+	}
+	binary, ok := e.(query.Binary)
+	if !ok || !matchOperator(binary.Op) {
+		return MatchPlan{}, false
+	}
+	step, ok := simpleMatchPath(binary.Left)
+	if !ok {
+		return MatchPlan{}, false
+	}
+	literal, ok := binary.Right.(query.Literal)
+	if !ok {
+		return MatchPlan{}, false
+	}
+	if step.Kind == "index" {
+		plan.IsIndex = true
+		plan.Index = int32(step.Index)
+	} else {
+		plan.KeyConst = c.prog.AddText(step.Key)
+	}
+	plan.OpConst = c.prog.AddText(binary.Op)
+	plan.ValueConst = c.prog.AddValue(literal.Value)
+	plan.HasValue = true
+	return plan, true
+}
+
+func simpleMatchPath(e query.Expr) (query.Step, bool) {
+	path, ok := e.(query.Path)
+	if !ok || path.Base != nil || path.Root || len(path.Steps) != 1 {
+		return query.Step{}, false
+	}
+	step := path.Steps[0]
+	if step.Kind != "key" && step.Kind != "index" {
+		return query.Step{}, false
+	}
+	return step, true
+}
+
+func matchOperator(op string) bool {
+	switch op {
+	case "==", "!=", "<", "<=", ">", ">=":
+		return true
+	default:
+		return false
 	}
 }
 

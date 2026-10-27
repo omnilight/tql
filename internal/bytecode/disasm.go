@@ -38,6 +38,17 @@ func Disassemble(p *Program) string {
 	for i, slot := range p.Slots {
 		fmt.Fprintf(&b, ".slot S%d %s\n", i, syntax.Quote(slot))
 	}
+	for i, match := range p.Matches {
+		selector := fmt.Sprintf("key=K%d", match.KeyConst)
+		if match.IsIndex {
+			selector = fmt.Sprintf("index=%d", match.Index)
+		}
+		if match.HasValue {
+			fmt.Fprintf(&b, ".match M%d %s op=K%d value=K%d\n", i, selector, match.OpConst, match.ValueConst)
+		} else {
+			fmt.Fprintf(&b, ".match M%d %s truth\n", i, selector)
+		}
+	}
 	for i, path := range p.Paths {
 		fmt.Fprintf(&b, ".path P%d\n", i)
 		for _, step := range path.Steps {
@@ -61,6 +72,8 @@ func Disassemble(p *Program) string {
 				fmt.Fprintf(&b, ".step filter C%d\n", step.Code)
 			case StepDynamic:
 				fmt.Fprintf(&b, ".step dynamic C%d\n", step.Code)
+			case StepMatch:
+				fmt.Fprintf(&b, ".step match M%d\n", step.Code)
 			}
 		}
 	}
@@ -146,6 +159,8 @@ func formatOp(op Op) string {
 		return fmt.Sprintf("%s %d %d C%d", name, op.A, op.B, op.C)
 	case OpFilterStream:
 		return fmt.Sprintf("%s %d %d C%d", name, op.A, op.B, op.C)
+	case OpFilterMatch:
+		return fmt.Sprintf("%s %d %d M%d", name, op.A, op.B, op.C)
 	case OpCall:
 		return fmt.Sprintf("%s %d K%d A%d", name, op.A, op.B, op.C)
 	case OpSelect:

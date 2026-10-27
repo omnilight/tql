@@ -46,7 +46,7 @@ func Decode(data []byte) (*Program, error) {
 		return nil, err
 	}
 	p := &Program{}
-	required := []uint16{sectionMeta, sectionParam, sectionConst, sectionSlot, sectionPath, sectionTarget, sectionTargetSet, sectionArgSet, sectionScope, sectionLoop, sectionCode}
+	required := []uint16{sectionMeta, sectionParam, sectionConst, sectionSlot, sectionPath, sectionTarget, sectionTargetSet, sectionArgSet, sectionScope, sectionLoop, sectionMatch, sectionCode}
 	for _, id := range required {
 		if _, ok := sections[id]; !ok {
 			return nil, fmt.Errorf("bytecode section %d is missing", id)
@@ -82,6 +82,9 @@ func Decode(data []byte) (*Program, error) {
 	if p.Loops, err = decodeLoops(sections[sectionLoop]); err != nil {
 		return nil, err
 	}
+	if p.Matches, err = decodeMatches(sections[sectionMatch]); err != nil {
+		return nil, err
+	}
 	if p.Codes, err = decodeCodes(sections[sectionCode]); err != nil {
 		return nil, err
 	}
@@ -109,7 +112,7 @@ func readSections(payload []byte) (map[uint16][]byte, error) {
 		if id <= last {
 			return nil, fmt.Errorf("bytecode sections are out of order or duplicated")
 		}
-		if id > sectionCode {
+		if id > sectionMatch {
 			return nil, fmt.Errorf("unknown bytecode section %d", id)
 		}
 		if uint64(size) > uint64(len(payload)) {
@@ -307,7 +310,7 @@ func decodePaths(body []byte) ([]PathPlan, error) {
 		}
 		for j := 0; j < steps && r.err == nil; j++ {
 			step := Step{Kind: StepKind(r.u8())}
-			if step.Kind > StepDynamic {
+			if step.Kind > StepMatch {
 				r.fail("unknown path step kind %d", step.Kind)
 				break
 			}
@@ -335,7 +338,7 @@ func decodePaths(body []byte) ([]PathPlan, error) {
 				if step.HasTo {
 					step.To = int(r.i32())
 				}
-			case StepFilter, StepDynamic:
+			case StepFilter, StepDynamic, StepMatch:
 				step.Code = r.i32()
 			case StepWildcard:
 			}
@@ -439,6 +442,36 @@ func decodeLoops(body []byte) ([]Loop, error) {
 			ReadOnly: r.u8() == 1,
 		}
 		out = append(out, loop)
+	}
+	if err := r.done(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func decodeMatches(body []byte) ([]MatchPlan, error) {
+	r := reader{buf: body}
+	count := r.count(maxSets)
+	if count == 0 {
+		return nil, r.done()
+	}
+	out := make([]MatchPlan, 0, count)
+	for i := 0; i < count && r.err == nil; i++ {
+		match := MatchPlan{
+			KeyConst: r.i32(),
+			Index:    r.i32(),
+		}
+		isIndex := r.u8()
+		match.OpConst = r.i32()
+		match.ValueConst = r.i32()
+		hasValue := r.u8()
+		if isIndex > 1 || hasValue > 1 {
+			r.fail("invalid match flag")
+			break
+		}
+		match.IsIndex = isIndex == 1
+		match.HasValue = hasValue == 1
+		out = append(out, match)
 	}
 	if err := r.done(); err != nil {
 		return nil, err

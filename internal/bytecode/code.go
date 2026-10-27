@@ -59,6 +59,7 @@ const (
 	OpFail
 	OpAnyTruth
 	OpReadValue
+	OpFilterMatch
 )
 
 var opNames = [...]string{
@@ -108,6 +109,7 @@ var opNames = [...]string{
 	OpFail:          "FAIL",
 	OpAnyTruth:      "ANY_TRUTH",
 	OpReadValue:     "READ_VALUE",
+	OpFilterMatch:   "FILTER_MATCH",
 }
 
 func (o OpCode) String() string {
@@ -150,6 +152,7 @@ const (
 	StepSlice
 	StepFilter
 	StepDynamic
+	StepMatch
 )
 
 type Step struct {
@@ -165,6 +168,18 @@ type Step struct {
 
 type PathPlan struct {
 	Steps []Step
+}
+
+// MatchPlan is a single key/index lookup followed by optional truthiness or a
+// comparison with a literal. It lets the VM evaluate common filters without a
+// nested frame.
+type MatchPlan struct {
+	KeyConst   int32 // text constant, when IsIndex is false
+	Index      int32
+	IsIndex    bool
+	OpConst    int32 // text constant, -1 for a truth test
+	ValueConst int32 // value constant, -1 for a truth test
+	HasValue   bool
 }
 
 type TargetKind uint8
@@ -215,6 +230,7 @@ type Program struct {
 	Targets    []TargetPlan
 	TargetSets [][]int32
 	ArgSets    [][]int32
+	Matches    []MatchPlan
 	Scopes     []Scope
 	Loops      []Loop
 	Codes      []*Code
@@ -255,6 +271,12 @@ func (p *Program) AddArgSet(regs []int32) int32 {
 func (p *Program) AddTargetSet(codes []int32) int32 {
 	p.TargetSets = append(p.TargetSets, codes)
 	return int32(len(p.TargetSets) - 1)
+}
+
+// AddMatch appends a simple filter match plan and returns its index.
+func (p *Program) AddMatch(m MatchPlan) int32 {
+	p.Matches = append(p.Matches, m)
+	return int32(len(p.Matches) - 1)
 }
 
 // NormalizeParamDefault keeps parameter defaults in the same value domain as
