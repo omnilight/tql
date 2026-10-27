@@ -27,6 +27,9 @@ func (d *Document) groups(ns []*syntax.Node, deleting bool) ([]selectionGroup, e
 		if e != nil {
 			return nil, e
 		}
+		if err := writable(owner); err != nil {
+			return nil, err
+		}
 		i, ok := byOwner[owner]
 		if !ok {
 			i = len(groups)
@@ -217,6 +220,9 @@ func (d *Document) assignmentPath(base *syntax.Node, steps []query.Step, vars qu
 			}
 			owner, err := d.runtime.owner(n)
 			if err != nil {
+				return err
+			}
+			if err := writable(owner); err != nil {
 				return err
 			}
 			a, err := addr(d.runtime.root(owner), n)

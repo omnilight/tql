@@ -136,6 +136,82 @@ Check the compilation error, then call `doc.Execute(program)`. Each execution ha
 its own variable environment. An error in any iteration rolls back the whole
 execution. See [scripting semantics](scripts.md).
 
+## Input parameters
+
+Declare inputs in the script and pass their values per execution:
+
+```go
+program, err := tql.Compile(`
+    param $service;
+    param $image;
+    param $replicas = 2;
+    services[$service].image = $image;
+    services[$service].deploy.replicas = $replicas;
+`)
+if err != nil {
+    return err
+}
+result, err := doc.Execute(program, tql.WithParams(map[string]any{
+    "service": "api",
+    "image": "api:v2",
+    "replicas": 3,
+}))
+if err != nil {
+    return err
+}
+fmt.Print(string(result.Bytes))
+```
+
+The fragment assumes a parsed `doc` and an enclosing function returning an error.
+`Exec`, `Execute`, and `Query` accept optional `ExecOption` values. `WithParams`
+is allowed once per call; omitted options mean no supplied parameters. Parameters
+belong to an execution, not to parsing, the document, or the compiled program.
+Missing required parameters and unknown supplied names fail before any statement.
+See [script parameters](scripts.md#input-parameters) for defaults and scope.
+
+`WithParams` captures a normalized deep snapshot when called. Changing the
+original map or its nested containers afterward has no effect. The option and
+compiled program can be reused concurrently across separate documents; each
+execution gets independent parameter trees and defaults. Returned read values
+are independent as well. Do not mutate the input map concurrently with the
+`WithParams` call that captures it.
+
+Values use the types listed below. Go integer types and finite `float32`/`float64`
+are also accepted and normalized to `tql.Number`. For exact decimal input, use
+`tql.Number("0.1")`; normalization cannot recover precision already lost in a
+floating-point value. Containers must be `map[string]any` or `[]any`. Unsupported
+types, cyclic containers, invalid UTF-8, invalid numbers or dates, and nesting
+beyond 256 levels are rejected. Errors captured by `WithParams` are returned by
+the execution call. The same normalization is available as `syntax.NormalizeValue`
+and is used by structured `Set` operations.
+
+Parameters are read-only, including nested values and references obtained through
+loops. `let $copy = $parameter` creates a mutable local snapshot. Supplying `nil`
+for a named parameter means explicit TQL `null`; it does not select its default.
+Target-format restrictions apply when a value is written: a `null` parameter can
+be read in a TOML script, but cannot be assigned into the TOML document.
+
+`Eval` accepts both parsing and execution options:
+
+```go
+result, err := tql.Eval(source, "yaml", script,
+    tql.WithStyle(tql.Style{Strings: "double"}),
+    tql.WithParams(params),
+)
+```
+
+| Option | `Parse` / `ParseWith` / `Registry.Parse` | `Exec` / `Execute` / `Query` | `Eval` |
+| --- | --- | --- | --- |
+| `WithStyle` | Yes | No | Yes |
+| `WithParams` | No | Yes | Yes |
+
+The option interfaces enforce this distinction at compile time: `ParseOption`
+and `ExecOption` both extend `EvalOption`. This replaces the former `Option`
+function type. Migrate stored parse-option slices to `[]tql.ParseOption` and
+stored `Eval` option slices to `[]tql.EvalOption`. `Exec`, `Execute`, and `Query`
+now have variadic options; update interface declarations or method-function
+types that referred to their old signatures. Calls without options still work.
+
 ## Value types
 
 | TQL value | Go type |

@@ -1,0 +1,5 @@
+{
+  "service": "api",
+  "image": "api:v2",
+  "replicas": 3
+}

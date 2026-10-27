@@ -11,6 +11,9 @@ type parser struct {
 	tokens             []token
 	at, depth          int
 	scriptDepth, loops int
+	parameters         []Parameter
+	parameterNames     map[string]bool
+	started            bool
 }
 
 func Parse(s string) (*Program, error) {
@@ -23,10 +26,10 @@ func Parse(s string) (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(statements) == 0 {
+	if len(statements) == 0 && len(p.parameters) == 0 {
 		return nil, fmt.Errorf("TQL: empty query")
 	}
-	return &Program{Statements: statements}, nil
+	return &Program{Parameters: p.parameters, Statements: statements}, nil
 }
 
 func (p *parser) statements(block bool) ([]Statement, error) {
@@ -35,6 +38,19 @@ func (p *parser) statements(block bool) ([]Statement, error) {
 		if p.take(";") {
 			continue
 		}
+		if p.peek().kind == "ident" && p.peek().text == "param" && p.tokens[p.at+1].kind == "$" {
+			if block || p.started {
+				return nil, p.err("parameters must be declared before other statements")
+			}
+			if err := p.parameter(); err != nil {
+				return nil, err
+			}
+			if !p.take(";") && p.peek().kind != "eof" {
+				return nil, p.err("expected ';' between declarations")
+			}
+			continue
+		}
+		p.started = true
 		st, compound, err := p.statement()
 		if err != nil {
 			return nil, err
@@ -50,6 +66,73 @@ func (p *parser) statements(block bool) ([]Statement, error) {
 		}
 	}
 	return out, nil
+}
+
+func (p *parser) parameter() error {
+	p.next()
+	name, err := p.variableName()
+	if err != nil {
+		return err
+	}
+	if p.parameterNames[name] {
+		return p.err("duplicate parameter $" + name)
+	}
+	param := Parameter{Name: name}
+	if p.take("=") {
+		e, err := p.expr(0)
+		if err != nil {
+			return err
+		}
+		if !constant(e) {
+			return p.err("parameter default must be a constant value")
+		}
+		param.Default, err = One(e, nil, nil)
+		if err != nil {
+			return err
+		}
+		param.HasDefault = true
+	}
+	p.parameters = append(p.parameters, param)
+	if p.parameterNames == nil {
+		p.parameterNames = make(map[string]bool)
+	}
+	p.parameterNames[name] = true
+	return nil
+}
+
+func constant(e Expr) bool {
+	switch x := e.(type) {
+	case Literal:
+		return true
+	case Unary:
+		literal, ok := x.Expr.(Literal)
+		if !ok {
+			return false
+		}
+		_, number := literal.Value.(syntax.Number)
+		return number && (x.Op == "+" || x.Op == "-")
+	case Array:
+		for _, value := range x.Values {
+			if !constant(value) {
+				return false
+			}
+		}
+		return true
+	case Object:
+		for _, value := range x.Values {
+			if !constant(value) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// ValidVariableName accepts exactly one named variable, without its leading $.
+func ValidVariableName(name string) bool {
+	ts, err := lex("$" + name)
+	return err == nil && len(ts) == 3 && ts[1].kind == "ident" && ts[1].pos == 1 && ts[1].text == name
 }
 func (p *parser) block() ([]Statement, error) {
 	if err := p.expect("{"); err != nil {

@@ -26,6 +26,67 @@ tql -i --query-file migration.tql config.yaml       # update the input file
 tql --values --query-file migration.tql config.yaml # print read results: the counter
 ```
 
+## Input parameters
+
+Declare a script's inputs before its first ordinary statement:
+
+```tql
+param $service;
+param $image;
+param $replicas = 2;
+
+services[$service].image = $image;
+services[$service].deploy.replicas = $replicas;
+```
+
+```sh
+tql --arg service=api --arg image=api:v2 --argjson replicas=3 \
+    --query-file rollout.tql compose.yaml
+```
+
+The Go APIs accept the same inputs through `tql.WithParams`; see the
+[library guide](library.md#input-parameters). Parameter names use the same
+identifier rules as local variables. CLI and Go names omit the leading `$`.
+
+An input without `=` is required, even if its only use is in an untaken branch.
+An input with `=` uses its default only when the caller omits the name. Explicit
+`null`, `false`, zero, and empty strings override the default. Missing required
+inputs and unknown supplied names fail before any script statement runs.
+
+Defaults are constant values: strings, numbers (including a leading sign),
+booleans, `null`, and nested arrays or objects of constants. Paths, variables,
+function calls, and calculations are not defaults. Use a local variable for
+document-dependent fallback:
+
+```tql
+param $timeout = null;
+let $effective_timeout = $timeout ?? server.timeout ?? 30;
+server.timeout = $effective_timeout;
+```
+
+Declarations must be at the top level, before all ordinary statements, and have
+unique names. Separate them with semicolons. `param` remains a valid document
+field name: `param.name` and `param = 1` are ordinary paths and assignments.
+A declaration alone neither mutates the document nor produces a read result.
+There are no parameter type annotations; ordinary expression and target-format
+checks apply when the script uses a value.
+
+Parameters and their descendants are read-only. Assignment, compound assignment,
+and deletion of selected parameter nodes fail, including through references from
+`for` or `walk`. Make a local snapshot when an algorithm needs a mutable value:
+
+```tql
+param $settings;
+let $local = $settings;
+$local.timeout = 10; # changes only the local copy
+```
+
+Parameters share the script's outer lexical scope. `let` cannot redeclare a
+parameter in that scope; an inner declaration or loop variable can shadow it.
+Each execution receives independent values, including arrays and objects used as
+defaults. Parameters do not persist on a `Document` or a compiled `Program`.
+They are data, never evaluated as TQL source or interpolated into string literals.
+
 ## Variables and scope
 
 ```tql

@@ -61,7 +61,7 @@ func TestExpressionErrors(t *testing.T) {
 	}
 }
 func FuzzParse(f *testing.F) {
-	for _, s := range []string{`a[foo == "x"].bar = 1`, `.a[] | select(.x); del(a[0])`, `{a:[1,2],b:"\uD83D\uDE00"}`, `a ??= 3`, `a[1:3] |= . * 2`, `let $x = 1; if $x { foo = $x } else { del(foo) }`, `for $n in walk() { if type($n) == "number" { $n += 1; continue } }; while false { break }`, `obj[$key] = $value`} {
+	for _, s := range []string{`a[foo == "x"].bar = 1`, `.a[] | select(.x); del(a[0])`, `{a:[1,2],b:"\uD83D\uDE00"}`, `a ??= 3`, `a[1:3] |= . * 2`, `let $x = 1; if $x { foo = $x } else { del(foo) }`, `for $n in walk() { if type($n) == "number" { $n += 1; continue } }; while false { break }`, `obj[$key] = $value`, `param $x; $x`, `param $x = {items:[-1,2]}; $x`, `param $x = null; param $x`, `if true { param $x }`} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) { _, _ = Parse(s) })

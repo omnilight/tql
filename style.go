@@ -9,29 +9,40 @@ import (
 // Style controls newly generated YAML and TOML syntax. Its zero value is auto.
 type Style = syntax.Style
 
-// Option configures a Document at parse time.
-type Option func(*parseOptions) error
 type parseOptions struct{ style Style }
+type styleOption struct{ style Style }
 
 // WithStyle sets a document's generation policy. It does not reformat source.
 // Each call replaces the previous policy. Options are document-local.
-func WithStyle(style Style) Option {
-	return func(o *parseOptions) error { o.style = style; return nil }
+func WithStyle(style Style) ParseOption {
+	return styleOption{style: style}
+}
+func (s styleOption) applyParse(o *parseOptions) error {
+	o.style = s.style
+	return nil
+}
+func (s styleOption) applyEval(o *evalOptions) error {
+	o.parse = append(o.parse, s)
+	return nil
 }
 
-func configuredFormat(format Format, options []Option) (Format, error) {
+func configuredFormat(format Format, options []ParseOption) (Format, error) {
+	if len(options) == 0 {
+		return format, nil
+	}
 	var o parseOptions
 	for _, option := range options {
 		if option == nil {
 			return nil, fmt.Errorf("nil parse option")
 		}
-		if err := option(&o); err != nil {
+		if err := option.applyParse(&o); err != nil {
 			return nil, err
 		}
 	}
-	if len(options) == 0 {
-		return format, nil
-	}
+	return o.configure(format)
+}
+
+func (o parseOptions) configure(format Format) (Format, error) {
 	f, ok := format.(syntax.StyledFormat)
 	if !ok {
 		if o.style.IsAuto() {

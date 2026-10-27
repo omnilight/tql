@@ -1,0 +1,10 @@
+# Deployment settings
+services:
+  api:
+    image: api:v1 # release image
+    deploy:
+      replicas: 1
+  worker:
+    image: worker:v1
+    deploy:
+      replicas: 1

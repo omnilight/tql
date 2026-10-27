@@ -1,0 +1,6 @@
+param $service;
+param $image;
+param $replicas = 2;
+
+services[$service].image = $image;
+services[$service].deploy.replicas = $replicas;

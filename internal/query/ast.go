@@ -51,7 +51,15 @@ type Statement struct {
 	Value      Expr
 	Targets    []Expr
 }
-type Program struct{ Statements []Statement }
+type Parameter struct {
+	Name       string
+	Default    any
+	HasDefault bool
+}
+type Program struct {
+	Parameters []Parameter
+	Statements []Statement
+}
 
 func (p *Program) Mutates() bool { return mutates(p.Statements) }
 func mutates(statements []Statement) bool {

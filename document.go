@@ -8,12 +8,12 @@ import (
 )
 
 // Parse copies source and parses it using a registered format name.
-func Parse(source []byte, format string, options ...Option) (*Document, error) {
+func Parse(source []byte, format string, options ...ParseOption) (*Document, error) {
 	return defaultRegistry.Parse(source, format, options...)
 }
 
 // ParseWith uses an explicit backend without modifying a registry.
-func ParseWith(source []byte, format Format, options ...Option) (*Document, error) {
+func ParseWith(source []byte, format Format, options ...ParseOption) (*Document, error) {
 	if format == nil {
 		return nil, errors.New("nil format")
 	}
@@ -58,16 +58,16 @@ type Result struct {
 }
 
 // Exec compiles and executes a query or script. Any error leaves d unchanged.
-func (d *Document) Exec(text string) (*Result, error) {
+func (d *Document) Exec(text string, options ...ExecOption) (*Result, error) {
 	p, err := Compile(text)
 	if err != nil {
 		return nil, err
 	}
-	return d.Execute(p)
+	return d.Execute(p, options...)
 }
 
 // Query evaluates a read-only program and refuses mutation statements.
-func (d *Document) Query(text string) ([]any, error) {
+func (d *Document) Query(text string, options ...ExecOption) ([]any, error) {
 	p, err := Compile(text)
 	if err != nil {
 		return nil, err
@@ -75,7 +75,11 @@ func (d *Document) Query(text string) ([]any, error) {
 	if p.Mutates() {
 		return nil, errors.New("query accepts read-only expressions; use Exec for mutations")
 	}
-	r, err := d.execute(p, false)
+	o, err := executionOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	r, err := d.execute(p, false, o)
 	if err != nil {
 		return nil, err
 	}
@@ -83,23 +87,49 @@ func (d *Document) Query(text string) ([]any, error) {
 }
 
 // Eval is the one-shot equivalent of Parse followed by Exec.
-func Eval(source []byte, format, text string, options ...Option) (*Result, error) {
-	d, err := Parse(source, format, options...)
+func Eval(source []byte, format, text string, options ...EvalOption) (*Result, error) {
+	var o evalOptions
+	for _, option := range options {
+		if option == nil {
+			return nil, errors.New("nil evaluation option")
+		}
+		if err := option.applyEval(&o); err != nil {
+			return nil, err
+		}
+	}
+	d, err := Parse(source, format, o.parse...)
 	if err != nil {
 		return nil, err
 	}
-	return d.Exec(text)
+	p, err := Compile(text)
+	if err != nil {
+		return nil, err
+	}
+	return d.execute(p, true, o.exec)
 }
 
 // Execute runs a compiled program and commits only if every statement succeeds.
 // Program may be reused concurrently with other Documents.
-func (d *Document) Execute(p *Program) (*Result, error) { return d.execute(p, true) }
-func (d *Document) execute(p *Program, wantBytes bool) (*Result, error) {
+func (d *Document) Execute(p *Program, options ...ExecOption) (*Result, error) {
+	o, err := executionOptions(options)
+	if err != nil {
+		return nil, err
+	}
+	return d.execute(p, true, o)
+}
+func (d *Document) execute(p *Program, wantBytes bool, options execOptions) (*Result, error) {
 	if p == nil || p.program == nil {
 		return nil, errors.New("nil program")
 	}
+	if d == nil || d.root == nil || d.format == nil {
+		return nil, errors.New("uninitialized document")
+	}
+	bindings, err := options.bindings(p)
+	if err != nil {
+		return nil, err
+	}
 	work := &Document{source: d.source, root: d.root, format: d.format}
-	work.runtime = newRuntime(work)
+	work.runtime = newRuntime(work, bindings)
 	result := &Result{Values: []any{}}
 	if _, err := work.runtime.block(p.program.Statements, false, result); err != nil {
 		return nil, err

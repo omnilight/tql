@@ -45,6 +45,9 @@ Options:
       --values          Print read results even when the query also mutates
       --check           No output/write; exit 1 if the query would change source
       --query-file FILE Read the query from a file
+      --arg NAME=VALUE  Bind a string parameter (repeatable)
+      --argjson NAME=JSON Bind a JSON parameter (repeatable)
+      --params-file FILE Read parameters from a JSON object; flags override it
       --version         Print version
   -h, --help            Show this help
 
@@ -56,6 +59,7 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	fs := flag.NewFlagSet("tql", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var format, queryFile string
+	var parameters parameterFlags
 	var style tql.Style
 	var collectionStyle, indent string
 	var inPlace, raw, values, check, showVersion, help bool
@@ -76,6 +80,9 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	fs.BoolVar(&values, "values", false, "print read results")
 	fs.BoolVar(&check, "check", false, "check for changes")
 	fs.StringVar(&queryFile, "query-file", "", "query file")
+	fs.Func("arg", "string parameter NAME=VALUE", func(s string) error { return parameters.set(s, false) })
+	fs.Func("argjson", "JSON parameter NAME=JSON", func(s string) error { return parameters.set(s, true) })
+	fs.Func("params-file", "JSON parameters file", parameters.setFile)
 	fs.BoolVar(&showVersion, "version", false, "show version")
 	fs.BoolVar(&help, "h", false, "show help")
 	fs.BoolVar(&help, "help", false, "show help")
@@ -131,6 +138,10 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 		return fail(fmt.Errorf("--in-place requires an input file"))
 	}
 	p, err := tql.Compile(program)
+	if err != nil {
+		return fail(err)
+	}
+	params, err := parameters.load()
 	if err != nil {
 		return fail(err)
 	}
@@ -204,7 +215,7 @@ func run(args []string, in io.Reader, out, stderr io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	result, err := doc.Execute(p)
+	result, err := doc.Execute(p, tql.WithParams(params))
 	if err != nil {
 		return fail(err)
 	}
