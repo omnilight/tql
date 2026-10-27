@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.0
+
 - Add optional Go 1.27 SIMD scanning for JSON, TOML, YAML and query strings on
   arm64 and amd64, enabled with `GOEXPERIMENT=simd`.
 - Reduce allocations in string parsing, quoting and insertion style selection,
