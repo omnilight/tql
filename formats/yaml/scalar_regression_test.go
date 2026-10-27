@@ -168,6 +168,43 @@ func TestCommentsMayHaveTabSeparation(t *testing.T) {
 	}
 }
 
+func TestFlowValuesMayHaveLeadingTabs(t *testing.T) {
+	for _, prefix := range []string{"\t", " \t", "\t \t"} {
+		for _, source := range []string{"{}", "{old: 1}", "[]", "[{old: 1}]"} {
+			source = prefix + source
+			t.Run(source, func(t *testing.T) {
+				root := parse(t, source)
+				key := "new"
+				if root.Kind == syntax.Array {
+					key = ""
+				}
+				out := insert(t, source, root, key, true)
+				if !strings.HasPrefix(out, prefix) {
+					t.Fatalf("leading separation changed: %q", out)
+				}
+				got := parse(t, out)
+				added := got.Get(key)
+				if root.Kind == syntax.Array {
+					added = got.Items[len(got.Items)-1]
+				}
+				if added == nil || added.Kind != syntax.Bool || added.Value != true {
+					t.Fatalf("inserted value: %#v", added)
+				}
+			})
+		}
+		for _, source := range []string{"'a: b'", `"a: b"`} {
+			if got := parse(t, prefix+source).Interface(); got != "a: b" {
+				t.Errorf("%q resolved to %#v", prefix+source, got)
+			}
+		}
+	}
+	for _, source := range []string{"\tkey: value", "\t- value", "\t? key\n: value"} {
+		if _, err := (Format{}).Parse([]byte(source)); err == nil {
+			t.Errorf("accepted tab indentation: %q", source)
+		}
+	}
+}
+
 func TestBlockPlainScalarColonBeforeFlowIndicators(t *testing.T) {
 	for _, value := range []string{"pod:{{ .pod }}", "value:[one,two]", "value:{name}", "value:,suffix", "value:]suffix", "value:}suffix"} {
 		for _, source := range []string{"tag: " + value + " # keep\n", "tags:\n  - " + value + " # keep\n"} {

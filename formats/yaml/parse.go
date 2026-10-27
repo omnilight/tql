@@ -322,13 +322,14 @@ func (p *parser) block(indent, parentIndent int) (*syntax.Node, error) {
 		return nil, errAt(p.lines[p.i].start, "property nesting limit exceeded")
 	}
 	l := p.lines[p.i]
-	if strings.HasPrefix(l.text, "\t") && (seq(strings.TrimLeft(l.text, " \t")) || colon(strings.TrimLeft(l.text, " \t")) >= 0) {
+	text := strings.TrimLeft(l.text, " \t")
+	if strings.HasPrefix(l.text, "\t") && (seq(text) || explicitKey(text) || colon(text) >= 0) {
 		return nil, errAt(l.start+l.indent, "tab indentation is not allowed")
 	}
-	if seq(l.text) {
+	if seq(text) {
 		return p.sequence(indent)
 	}
-	if explicitKey(l.text) || colon(l.text) >= 0 {
+	if explicitKey(text) || colon(text) >= 0 {
 		return p.mapping(indent, -1)
 	}
 	p.i++
