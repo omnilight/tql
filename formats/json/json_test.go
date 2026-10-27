@@ -205,6 +205,14 @@ func FuzzParse(f *testing.F) {
 	for _, s := range []string{`null`, `{"a":[1,"x",true]}`, `"\uD834\uDD1E"`, `[1.5e+20,-0]`, `{"a":1,"a":2}`, `"\uD800"`} {
 		f.Add([]byte(s))
 	}
+	for _, s := range []string{
+		`"` + strings.Repeat("a", 65) + `"`,
+		`"` + strings.Repeat(strings.Repeat("a", 33)+`\n`, 4) + `"`,
+		`"` + strings.Repeat("é水😀", 17) + `\uD834\uDD1E"`,
+		`"` + strings.Repeat("a", 32) + "\x1f\"",
+	} {
+		f.Add([]byte(s))
+	}
 	f.Fuzz(func(t *testing.T, b []byte) {
 		n, err := (Format{}).Parse(b)
 		if err != nil {

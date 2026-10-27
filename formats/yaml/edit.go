@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/vasileknik76/tql/internal/scan"
 	"github.com/vasileknik76/tql/syntax"
 )
 
@@ -132,6 +133,9 @@ func encode(value any) (string, error) {
 	text, e := syntax.JSON(value)
 	if e != nil {
 		return "", e
+	}
+	if scan.NonASCIIString(text) == len(text) {
+		return text, nil
 	}
 	var b strings.Builder
 	for _, r := range text {

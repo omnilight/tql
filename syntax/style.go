@@ -75,13 +75,21 @@ type StyledFormat interface{ WithStyle(Style) (Format, error) }
 // accept can distinguish arrays of objects from arrays of scalars. signature
 // groups representations without treating values or comments as style.
 func NearbyTemplate(parent *Node, kind Kind, accept func(*Node) bool, signature func(*Node) string) *Node {
+	type evidence struct {
+		count, order int
+		last         *Node
+	}
 	for scope := parent; scope != nil; scope = scope.Parent {
-		counts := map[string]int{}
-		var candidates []*Node
+		counts := map[string]evidence{}
+		order := 0
 		add := func(v *Node) {
 			if v != parent && v.Kind == kind && (accept == nil || accept(v)) {
-				counts[signature(v)]++
-				candidates = append(candidates, v)
+				key := signature(v)
+				group := counts[key]
+				group.count++
+				group.order, group.last = order, v
+				counts[key] = group
+				order++
 			}
 		}
 		for _, e := range scope.Entries {
@@ -91,12 +99,11 @@ func NearbyTemplate(parent *Node, kind Kind, accept func(*Node) bool, signature 
 			add(v)
 		}
 		var best *Node
-		count := 0
-		for _, v := range candidates {
-			c := counts[signature(v)]
-			if c >= count {
-				best = v
-				count = c
+		count, lastOrder := 0, -1
+		for _, group := range counts {
+			if group.count > count || group.count == count && group.order > lastOrder {
+				best = group.last
+				count, lastOrder = group.count, group.order
 			}
 		}
 		if best != nil {

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/vasileknik76/tql/internal/scan"
 	"github.com/vasileknik76/tql/syntax"
 )
 
@@ -50,14 +51,14 @@ func parseDocuments(src []byte) ([]*syntax.Node, error) {
 	if !utf8.Valid(src) {
 		return nil, errAt(0, "invalid UTF-8")
 	}
-	for i, c := range src {
-		if c < 0x20 && c != '\n' && c != '\r' && c != '\t' {
-			return nil, errAt(i, "non-printable character")
-		}
+	if i := scan.YAMLControl(src); i < len(src) {
+		return nil, errAt(i, "non-printable character")
 	}
-	for i, r := range string(src) {
-		if r >= 0x7f && r <= 0x9f && r != 0x85 || r == 0xfffe || r == 0xffff {
-			return nil, errAt(i, "non-printable character")
+	if scan.NonASCII(src) < len(src) {
+		for i, r := range string(src) {
+			if r >= 0x7f && r <= 0x9f && r != 0x85 || r == 0xfffe || r == 0xffff {
+				return nil, errAt(i, "non-printable character")
+			}
 		}
 	}
 	p := &parser{src: src}
@@ -66,10 +67,7 @@ func parseDocuments(src []byte) ([]*syntax.Node, error) {
 		offset = 3
 	}
 	for off := offset; off < len(src); {
-		end := off
-		for end < len(src) && src[end] != '\n' && src[end] != '\r' {
-			end++
-		}
+		end := off + scan.LineBreak(src[off:])
 		next := end
 		if next < len(src) {
 			next++
@@ -268,6 +266,17 @@ func colon(s string) int {
 	for i := start; i < len(s); i++ {
 		c := s[i]
 		if quote != 0 {
+			if len(s)-i >= 32 {
+				escape := quote
+				if quote == '"' {
+					escape = '\\'
+				}
+				i += scan.QuotedString(s[i:], quote, escape)
+				if i == len(s) {
+					break
+				}
+				c = s[i]
+			}
 			if quote == '"' && c == '\\' {
 				i++
 				continue

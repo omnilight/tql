@@ -216,5 +216,8 @@ func FuzzQuote(f *testing.F) {
 		if e := json.Unmarshal([]byte(encoded), &decoded); e != nil {
 			t.Fatalf("invalid JSON %q: %v", encoded, e)
 		}
+		if want := string([]rune(s)); decoded != want {
+			t.Fatalf("got %q, want %q", decoded, want)
+		}
 	})
 }

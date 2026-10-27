@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/vasileknik76/tql/internal/scan"
 	"github.com/vasileknik76/tql/syntax"
 )
 
@@ -76,6 +77,14 @@ func (p *parser) comment() error {
 		return nil
 	}
 	for p.pos < len(p.src) && p.peek() != '\n' && p.peek() != '\r' {
+		start := p.pos
+		p.pos += scan.QuotedScalar(p.src[p.pos:min(p.pos+16, len(p.src))], 0x7f, 0x7f)
+		if p.pos-start == 16 {
+			p.pos += scan.Quoted(p.src[p.pos:], 0x7f, 0x7f)
+		}
+		if p.pos == len(p.src) || p.peek() == '\n' || p.peek() == '\r' {
+			break
+		}
 		c := p.peek()
 		if c < 0x20 && c != '\t' || c == 0x7f {
 			return p.err("control character in comment")
@@ -317,7 +326,22 @@ func (p *parser) stringValue() (*syntax.Node, error) {
 		p.pos += 2
 		p.newline()
 	}
+	content := p.pos
+	escape := q
+	if q == '"' {
+		escape = '\\'
+	}
+	p.pos += scan.QuotedScalar(p.src[p.pos:min(p.pos+16, len(p.src))], q, escape)
+	if p.pos-content == 16 {
+		p.pos += scan.Quoted(p.src[p.pos:], q, escape)
+	}
+	if !multi && p.pos < len(p.src) && p.src[p.pos] == q {
+		value := string(p.src[content:p.pos])
+		p.pos++
+		return &syntax.Node{Kind: syntax.String, Value: value, Start: start, End: p.pos}, nil
+	}
 	var b strings.Builder
+	b.Write(p.src[content:p.pos])
 	for p.pos < len(p.src) {
 		c := p.peek()
 		if c == q {
@@ -348,6 +372,14 @@ func (p *parser) stringValue() (*syntax.Node, error) {
 				return nil, p.err("bare carriage return")
 			}
 			b.WriteByte('\n')
+			// Copy ordinary text after a line break as one run. Dense escapes
+			// in single-line strings keep the original byte decoder.
+			end := p.pos + scan.QuotedScalar(p.src[p.pos:min(p.pos+16, len(p.src))], q, escape)
+			if end-p.pos == 16 && end < len(p.src) && p.src[end] >= 0x20 {
+				end += scan.Quoted(p.src[end:], q, escape)
+			}
+			b.Write(p.src[p.pos:end])
+			p.pos = end
 			continue
 		}
 		if c < 0x20 && c != '\t' || c == 0x7f {
