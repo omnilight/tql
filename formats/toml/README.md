@@ -1,7 +1,7 @@
 # TOML backend
 
 `toml.Format{}` implements `syntax.Format` with a handwritten
-[TOML 1.0](https://toml.io/en/v1.0.0) parser and source-preserving edits. It has no
+[TOML 1.1](https://toml.io/en/v1.1.0) parser and source-preserving edits. It has no
 third-party runtime dependencies.
 
 ## Supported syntax
@@ -9,19 +9,29 @@ third-party runtime dependencies.
 The parser supports quoted and dotted keys, implicit and explicit tables, arrays
 of tables, inline tables, mixed and multiline arrays, all four string forms,
 Unicode escapes, integer bases, floats, infinities and NaNs, and offset/local dates
-and times.
+and times. TOML 1.1 adds `\e` and `\xHH` escapes in basic strings and quoted keys,
+optional seconds in times and date-times, and newlines, comments, and trailing
+commas in inline tables. For example:
+
+```toml
+name = "Jos\xE9"
+meeting = 1979-05-27T07:32Z
+settings = {
+  enabled = true,
+}
+```
 
 Values retain source offsets. Header and dotted-key tables are synthetic object
 nodes because their contents may occupy separate parts of the document. Arrays of
 tables are synthetic arrays containing synthetic objects. Dates and times use
 `syntax.Temporal`; numbers use `syntax.Number`. Integer spelling is normalized in
 the value tree, while source bytes retain their original spelling until edited.
+Temporal values retain their input spelling, including omitted seconds.
 
 The parser rejects malformed UTF-8, duplicate definitions, invalid escapes and
 dates, unsupported value tokens, integers outside signed 64-bit range, and float
 overflow. Value nesting and dotted key paths are limited to 256 levels. Leap seconds
-are unsupported. The target is TOML 1.0, not TOML 1.1; the backend has not been
-certified against a complete external conformance suite.
+are unsupported.
 
 ## Edit behavior
 
@@ -68,11 +78,19 @@ values and keys, 15,000 table/key declaration combinations, and 40,000 mutations
 The count includes repeated documents. The harness builds its Go helper in a
 temporary directory and removes it afterward.
 
-Two intentional numeric-policy differences are reported separately: Python accepts
+Intentional numeric-policy differences are reported separately: Python accepts
 integers outside signed 64-bit range and converts float exponent overflow to
 infinity; this backend rejects both. The harness recognizes a policy difference
-only when the Go error and Python value confirm it. Any unexpected acceptance or
-semantic difference causes exit status 1.
+only when the Go error and Python value confirm it.
+
+Python versions whose `tomllib` supports only TOML 1.0 reject some TOML 1.1 forms.
+For inputs accepted by TQL and rejected by Python, the harness additionally checks
+acceptance and decoded values with the independent `BurntSushi/toml` 1.6.0 decoder.
+It is pinned in a separate module under `testdata/oracle/reference`, so it adds no
+library dependency. The first such run may download this test-only dependency;
+subsequent offline runs require it in the Go module cache. These independently
+confirmed version differences are counted separately. Every other unexpected
+acceptance or semantic difference causes exit status 1.
 
 For a smaller run, optionally saving unexpected cases:
 

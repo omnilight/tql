@@ -2,44 +2,125 @@ package yaml
 
 import (
 	"bytes"
+	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/vasileknik76/tql/syntax"
 )
 
 type tagInfo struct {
 	name       string
+	uri        string
 	start, end int
 }
 
-func tagProperty(src []byte, start, end int) (tagInfo, int, error) {
+func (p *parser) tagProperty(src []byte, start, end int) (tagInfo, int, error) {
 	pos := start
 	if strings.HasPrefix(string(src[start:end]), "!<") {
 		pos += 2
+		valueStart := pos
 		for pos < end && src[pos] != '>' {
 			pos++
 		}
 		if pos == end {
 			return tagInfo{}, pos, errAt(start, "unterminated tag")
 		}
-		pos++
-	} else {
-		for pos < end && !strings.ContainsRune(" \t\r\n[]{},", rune(src[pos])) {
-			pos++
+		if pos+1 < end && !strings.ContainsRune(" \t\r\n,]}", rune(src[pos+1])) {
+			return tagInfo{}, pos, errAt(pos+1, "tag property must be separated from its node")
 		}
+		uri, err := decodeTagURI(string(src[valueStart:pos]), valueStart)
+		if err != nil {
+			return tagInfo{}, pos, err
+		}
+		return resolvedTag(uri, start, pos+1), pos + 1, nil
+	}
+	for pos < end && !strings.ContainsRune(" \t\r\n[]{},", rune(src[pos])) {
+		pos++
 	}
 	raw := string(src[start:pos])
-	name := strings.TrimPrefix(raw, "!!")
-	if strings.HasPrefix(raw, "!<tag:yaml.org,2002:") && strings.HasSuffix(raw, ">") {
-		name = strings.TrimSuffix(strings.TrimPrefix(raw, "!<tag:yaml.org,2002:"), ">")
-	} else if !strings.HasPrefix(raw, "!!") {
-		return tagInfo{}, pos, errAt(start, "custom tags are unsupported")
+	if pos < end && (src[pos] == '[' || src[pos] == '{') {
+		return tagInfo{}, pos, errAt(pos, "tag property must be separated from its node")
 	}
-	switch name {
-	case "str", "int", "float", "bool", "null", "seq", "map":
-		return tagInfo{name, start, pos}, pos, nil
+	if raw == "!" {
+		return resolvedTag("!", start, pos), pos, nil
 	}
-	return tagInfo{}, pos, errAt(start, "unsupported native tag "+name)
+	handle, suffix := "!", raw[1:]
+	if i := strings.IndexByte(raw[1:], '!'); i >= 0 {
+		handle, suffix = raw[:i+2], raw[i+2:]
+	}
+	if !validTagHandle(handle) {
+		return tagInfo{}, pos, errAt(start, "invalid tag handle")
+	}
+	if suffix == "" {
+		return tagInfo{}, pos, errAt(start, "empty tag suffix")
+	}
+	if strings.ContainsAny(suffix, "![]{},") {
+		return tagInfo{}, pos, errAt(start, "invalid tag suffix")
+	}
+	prefix, ok := p.tagHandles[handle]
+	if !ok {
+		switch handle {
+		case "!":
+			prefix, ok = "!", true
+		case "!!":
+			prefix, ok = "tag:yaml.org,2002:", true
+		}
+	}
+	if !ok {
+		return tagInfo{}, pos, errAt(start, "undefined tag handle "+handle)
+	}
+	uri, err := decodeTagURI(prefix+suffix, start)
+	if err != nil {
+		return tagInfo{}, pos, err
+	}
+	return resolvedTag(uri, start, pos), pos, nil
+}
+func validTagHandle(handle string) bool {
+	if handle == "!" || handle == "!!" {
+		return true
+	}
+	if len(handle) < 3 || handle[0] != '!' || handle[len(handle)-1] != '!' {
+		return false
+	}
+	for _, c := range handle[1 : len(handle)-1] {
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+func decodeTagURI(raw string, start int) (string, error) {
+	if raw == "" {
+		return "", errAt(start, "empty tag URI")
+	}
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if c == '%' {
+			if i+2 >= len(raw) {
+				return "", errAt(start+i, "incomplete tag URI escape")
+			}
+			i += 2
+			continue
+		}
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("-#;/?:@&=+$,_.!~*'()[]", rune(c)) {
+			continue
+		}
+		return "", errAt(start+i, "invalid tag URI character")
+	}
+	uri, err := url.PathUnescape(raw)
+	if err != nil || !utf8.ValidString(uri) {
+		return "", errAt(start, "invalid tag URI escape")
+	}
+	return uri, nil
+}
+func resolvedTag(uri string, start, end int) tagInfo {
+	name := uri
+	if strings.HasPrefix(uri, "tag:yaml.org,2002:") {
+		name = strings.TrimPrefix(uri, "tag:yaml.org,2002:")
+	}
+	return tagInfo{name: name, uri: uri, start: start, end: end}
 }
 func pendingTag(n *syntax.Node) (tagInfo, bool) {
 	t, ok := n.Meta["pendingTag"].(tagInfo)
@@ -52,14 +133,24 @@ func (p *parser) applyTag(n *syntax.Node, t tagInfo) error {
 	if _, exists := n.Meta["tag"]; exists {
 		return errAt(t.start, "duplicate tag properties")
 	}
+	n.Meta = meta(n.Meta)
+	n.Meta["tag"] = t
+	n.Meta["tagURI"] = t.uri
+	return nil
+}
+func (p *parser) constructTag(n *syntax.Node, t tagInfo) error {
 	value := n.Value
-	text := ""
-	if n.Kind == syntax.String {
+	text, hasText := n.Meta["scalarValue"].(string)
+	if !hasText && n.Kind == syntax.String {
 		text = value.(string)
-	} else if n.Style == "plain" {
+	} else if !hasText && n.Style == "plain" {
 		text = string(p.src[n.Start:n.End])
 	}
 	switch t.name {
+	case "!":
+		if n.Kind != syntax.Object && n.Kind != syntax.Array {
+			n.Kind, n.Value = syntax.String, text
+		}
 	case "str":
 		if n.Kind == syntax.Object || n.Kind == syntax.Array {
 			return errAt(t.start, "!!str requires a scalar")
@@ -87,6 +178,9 @@ func (p *parser) applyTag(n *syntax.Node, t tagInfo) error {
 		n.Kind = syntax.Bool
 		n.Value = resolved.Value
 	case "null":
+		if n.Kind == syntax.Object || n.Kind == syntax.Array {
+			return errAt(t.start, "!!null requires a scalar")
+		}
 		resolved, e := scalar(text, n.Start, n.End)
 		if text == "" {
 			resolved = &syntax.Node{Kind: syntax.Null}
@@ -104,13 +198,18 @@ func (p *parser) applyTag(n *syntax.Node, t tagInfo) error {
 		if n.Kind != syntax.Array {
 			return errAt(t.start, "!!seq requires a sequence")
 		}
+	default:
+		return errAt(t.start, "tag cannot be represented by TQL: "+t.uri)
 	}
-	n.Meta = meta(n.Meta)
-	n.Meta["tag"] = t
 	return nil
 }
 func tagFits(t tagInfo, value any) bool {
 	switch t.name {
+	case "!":
+		switch value.(type) {
+		case string, syntax.Temporal, map[string]any, []any:
+			return true
+		}
 	case "str":
 		switch value.(type) {
 		case string, syntax.Temporal:

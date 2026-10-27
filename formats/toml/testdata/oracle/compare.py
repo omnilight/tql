@@ -3,7 +3,7 @@
 
 Production and ordinary Go tests do not require Python. This harness builds its
 Go helper in a temporary directory and leaves the repository unchanged. Expected
-numeric range-policy differences are counted separately from actual failures.
+numeric range-policy and TOML-version differences are counted separately from failures.
 """
 
 import argparse
@@ -209,6 +209,58 @@ def known_range_difference(reference, answer):
     return False
 
 
+def reference_value(tagged):
+    kind, value = tagged["type"], tagged["value"]
+    if kind == "table":
+        return {key: reference_value(child) for key, child in value.items()}
+    if kind == "array":
+        return [reference_value(child) for child in value]
+    if kind == "string":
+        return value
+    if kind == "bool":
+        return value == "true"
+    if kind == "integer":
+        return int(value)
+    if kind == "float":
+        return float(value)
+    if kind in ("datetime", "datetime-local"):
+        return datetime.datetime.fromisoformat(value)
+    if kind == "date-local":
+        return datetime.date.fromisoformat(value)
+    if kind == "time-local":
+        return datetime.time.fromisoformat(value)
+    raise ValueError(f"unexpected reference type {kind}")
+
+
+def check_version_differences(root, mismatches):
+    """Independently decode newer syntax before accepting a version difference."""
+    candidates = [m for m in mismatches if not m["python_ok"] and m["go"]["ok"]]
+    if not candidates:
+        return mismatches, 0
+    with tempfile.TemporaryDirectory(prefix="tql-toml-reference-") as temp:
+        binary = Path(temp) / ("reference.exe" if os.name == "nt" else "reference")
+        subprocess.run(["go", "build", "-o", str(binary), "."],
+                       cwd=root / "formats/toml/testdata/oracle/reference", check=True)
+        result = subprocess.run(
+            [str(binary)], input="".join(json.dumps(m["source"]) + "\n"
+                                        for m in candidates),
+            text=True, capture_output=True, check=True, timeout=60)
+    references = [json.loads(line) for line in result.stdout.splitlines()]
+    if len(references) != len(candidates):
+        raise SystemExit("TOML 1.1 reference returned an unexpected number of answers")
+    confirmed = set()
+    for mismatch, reference in zip(candidates, references):
+        if not reference["ok"]:
+            mismatch["toml11_error"] = reference["error"]
+            continue
+        value = reference_value(reference["value"])
+        if equivalent(value, mismatch["go"]["value"]):
+            confirmed.add(id(mismatch))
+        else:
+            mismatch["toml11_reference"] = repr(value)
+    return [m for m in mismatches if id(m) not in confirmed], len(confirmed)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cases", type=int, default=40000,
@@ -249,12 +301,14 @@ def main():
             continue
         unexpected.append({"source": source, "python_ok": reference_ok,
                            "python": repr(reference), "go": answer})
+    unexpected, version_differences = check_version_differences(root, unexpected)
     if args.save_mismatches:
         args.save_mismatches.write_text(
             json.dumps(unexpected, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8")
     print(f"Compared {len(docs):,} documents; {valid_count:,} valid seeds; "
           f"{expected} expected numeric-range differences; "
+          f"{version_differences} independently checked TOML-version differences; "
           f"{len(unexpected)} unexpected differences.")
     for mismatch in unexpected[:20]:
         print(json.dumps(mismatch, ensure_ascii=False))

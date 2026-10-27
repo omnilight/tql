@@ -89,7 +89,7 @@ func TestSpecValues(t *testing.T) {
 }
 func TestInvalid(t *testing.T) {
 	cases := []string{
-		"x=01", "x=+0x12", "x=1_", "x=1__2", "x=.7", "x=7.", "x=0e", "x=9223372036854775808", "x=0xffffffffffffffff", "x=null", "x=TRUE", "x=bare", "x=2023-02-29", "x=25:00:00", "x=1979-05-27T07:32:00+99:00", "x=1 x=2", "x='unterminated", "x=\"a\nb\"", "x=\"\\e\"", "x=\"\\uD800\"", "x=\"\\U00110000\"", "x=\"\\u+123\"", "x=[1 2]", "x=[1,,2]", "x={a=1,}", "x={\na=1}", "x={a=1,a=2}", "x=1\nx=2", "a.b=1\n[a]", "a={b=1}\n[a.c]", "[a]\n[a]", "a=1\n[a.b]", "a=[]\n[[a]]", "x='\x7f'", "#\x01", "x=1\r", "\xef\xbb\xbfx=1", "x=\"\"\"abc\"\"\"\"\"\"", "'''key'''=1",
+		"x=01", "x=+0x12", "x=1_", "x=1__2", "x=.7", "x=7.", "x=0e", "x=9223372036854775808", "x=0xffffffffffffffff", "x=null", "x=TRUE", "x=bare", "x=2023-02-29", "x=25:00:00", "x=1979-05-27T07:32:00+99:00", "x=1 x=2", "x='unterminated", "x=\"a\nb\"", "x=\"\\uD800\"", "x=\"\\U00110000\"", "x=\"\\u+123\"", "x=[1 2]", "x=[1,,2]", "x={a=1,a=2}", "x=1\nx=2", "a.b=1\n[a]", "a={b=1}\n[a.c]", "[a]\n[a]", "a=1\n[a.b]", "a=[]\n[[a]]", "x='\x7f'", "#\x01", "x=1\r", "\xef\xbb\xbfx=1", "x=\"\"\"abc\"\"\"\"\"\"", "'''key'''=1",
 	}
 	for _, src := range cases {
 		t.Run(strings.ReplaceAll(src, "\n", "/"), func(t *testing.T) {

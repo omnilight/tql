@@ -72,7 +72,7 @@ func TestBlockAndFlow(t *testing.T) {
 	}
 }
 func TestCoreScalars(t *testing.T) {
-	cases := map[string]any{"null": nil, "~": nil, "NULL": nil, "true": true, "False": false, "yes": "yes", "on": "on", "012": syntax.Number("12"), "-0x10": syntax.Number("-16"), "0o17": syntax.Number("15"), "+.5": syntax.Number("0.5"), "2.": syntax.Number("2.0"), "1e10": syntax.Number("1e10"), "2026-10-26": "2026-10-26", "123456789012345678901234567890": syntax.Number("123456789012345678901234567890")}
+	cases := map[string]any{"null": nil, "~": nil, "NULL": nil, "true": true, "False": false, "yes": "yes", "on": "on", "012": syntax.Number("12"), "-0x10": "-0x10", "0o17": syntax.Number("15"), "+.5": syntax.Number("0.5"), "2.": syntax.Number("2.0"), "1e10": syntax.Number("1e10"), "2026-10-26": "2026-10-26", "123456789012345678901234567890": syntax.Number("123456789012345678901234567890")}
 	for src, want := range cases {
 		t.Run(src, func(t *testing.T) {
 			n := parse(t, src)

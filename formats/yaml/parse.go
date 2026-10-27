@@ -4,7 +4,7 @@ package yaml
 
 import (
 	"fmt"
-	"strconv"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -19,14 +19,15 @@ var _ syntax.Format = Format{}
 type line struct {
 	start, end, next, indent int
 	text                     string
+	inlineRoot               bool
 }
 type parser struct {
-	src         []byte
-	lines       []line
-	i, depth    int
-	anchors     map[string]*syntax.Node
-	aliasNodes  int
-	forceString bool
+	src           []byte
+	lines         []line
+	i, depth      int
+	propertyDepth int
+	anchors       map[string]*syntax.Node
+	tagHandles    map[string]string
 }
 type segment struct{ start, end int }
 
@@ -34,7 +35,9 @@ func errAt(pos int, msg string) error { return fmt.Errorf("yaml: byte %d: %s", p
 
 // Parse reads one document and returns a linked, source-aware syntax tree.
 // It does not modify source.
-func (Format) Parse(src []byte) (*syntax.Node, error) {
+func (Format) Parse(src []byte) (*syntax.Node, error) { return projectDocument(src) }
+
+func parseDocuments(src []byte) ([]*syntax.Node, error) {
 	if !utf8.Valid(src) {
 		return nil, errAt(0, "invalid UTF-8")
 	}
@@ -69,66 +72,191 @@ func (Format) Parse(src []byte) (*syntax.Node, error) {
 		for off+in < end && src[off+in] == ' ' {
 			in++
 		}
-		p.lines = append(p.lines, line{off, end, next, in, string(src[off+in : end])})
+		p.lines = append(p.lines, line{start: off, end: end, next: next, indent: in, text: string(src[off+in : end])})
 		off = next
 	}
-	p.skip()
-	hadDirective := false
-	for p.i < len(p.lines) && strings.HasPrefix(p.lines[p.i].text, "%") {
-		if strings.TrimSpace(p.lines[p.i].text) != "%YAML 1.2" {
-			return nil, errAt(p.lines[p.i].start, "unsupported directive")
+
+	documents := []*syntax.Node{}
+	documentStart := 0
+	for {
+		p.skip()
+		for p.i < len(p.lines) && marker(p.lines[p.i], "...") {
+			if err := p.endMarker(); err != nil {
+				return nil, err
+			}
+			p.skip()
 		}
-		if hadDirective {
-			return nil, errAt(p.lines[p.i].start, "duplicate YAML directive")
+		if p.i == len(p.lines) {
+			break
+		}
+		p.anchors = nil
+		p.tagHandles = map[string]string{"!": "!", "!!": "tag:yaml.org,2002:"}
+		version, hadDirective, err := p.directives()
+		if err != nil {
+			return nil, err
+		}
+		explicitStart := p.i < len(p.lines) && marker(p.lines[p.i], "---")
+		if explicitStart {
+			l := &p.lines[p.i]
+			start := l.start + 3
+			for start < l.end && (src[start] == ' ' || src[start] == '\t') {
+				start++
+			}
+			if start == l.end || src[start] == '#' {
+				p.i++
+				p.skip()
+			} else {
+				text := string(src[start:l.end])
+				if seq(text) || explicitKey(text) || colon(text) >= 0 {
+					return nil, errAt(start, "block collections cannot follow --- on the same line")
+				}
+				l.start, l.text, l.inlineRoot = start, text, true
+			}
+		} else if hadDirective {
+			return nil, errAt(0, "a directive requires ---")
+		}
+		var root *syntax.Node
+		if p.i == len(p.lines) || marker(p.lines[p.i], "---") || marker(p.lines[p.i], "...") {
+			pos := len(src)
+			if p.i < len(p.lines) {
+				pos = p.lines[p.i].start
+			}
+			root = emptyScalar(pos)
+		} else {
+			root, err = p.block(p.lines[p.i].indent, -1)
+			if err != nil {
+				return nil, err
+			}
+		}
+		p.skip()
+		explicitEnd := p.i < len(p.lines) && marker(p.lines[p.i], "...")
+		if explicitEnd {
+			if err := p.endMarker(); err != nil {
+				return nil, err
+			}
+			p.skip()
+		}
+		documentEnd := len(src)
+		if p.i < len(p.lines) {
+			documentEnd = p.lines[p.i].start
+			if !marker(p.lines[p.i], "---") && !explicitEnd {
+				return nil, errAt(documentEnd, "unexpected content after document")
+			}
+		}
+		root.Meta = meta(root.Meta)
+		root.Meta["documentStart"], root.Meta["documentEnd"] = documentStart, documentEnd
+		root.Meta["explicitStart"], root.Meta["explicitEnd"], root.Meta["version"] = explicitStart, explicitEnd, version
+		documents = append(documents, root)
+		documentStart = documentEnd
+	}
+	return documents, nil
+}
+
+func (p *parser) directives() (string, bool, error) {
+	hadDirective, hadYAML := false, false
+	version := ""
+	handles := map[string]bool{}
+	for p.i < len(p.lines) && strings.HasPrefix(p.lines[p.i].text, "%") {
+		l := p.lines[p.i]
+		if l.indent != 0 {
+			return "", false, errAt(l.start, "directives must start at column zero")
+		}
+		text := l.text
+		if i := strings.IndexByte(text, '#'); i > 0 && (text[i-1] == ' ' || text[i-1] == '\t') {
+			text = text[:i]
+		}
+		fields := strings.FieldsFunc(text, func(r rune) bool { return r == ' ' || r == '\t' })
+		switch fields[0] {
+		case "%YAML":
+			if hadYAML {
+				return "", false, errAt(l.start, "duplicate YAML directive")
+			}
+			if len(fields) != 2 {
+				return "", false, errAt(l.start, "invalid YAML directive")
+			}
+			major, minor, ok := strings.Cut(fields[1], ".")
+			if !ok || major != "1" || minor == "" || strings.Trim(minor, "0123456789") != "" {
+				return "", false, errAt(l.start, "unsupported YAML version")
+			}
+			version, hadYAML = fields[1], true
+		case "%TAG":
+			if len(fields) != 3 {
+				return "", false, errAt(l.start, "invalid TAG directive")
+			}
+			handle := fields[1]
+			if !validTagHandle(handle) {
+				return "", false, errAt(l.start, "invalid tag handle")
+			}
+			prefixStart := l.start + strings.LastIndex(text, fields[2])
+			if _, err := decodeTagURI(fields[2], prefixStart); err != nil {
+				return "", false, err
+			}
+			if handles[handle] {
+				return "", false, errAt(l.start, "duplicate tag directive")
+			}
+			handles[handle] = true
+			p.tagHandles[handle] = fields[2]
+		default:
+			if len(fields[0]) == 1 {
+				return "", false, errAt(l.start, "empty directive name")
+			}
 		}
 		hadDirective = true
 		p.i++
 		p.skip()
 	}
-	if p.i < len(p.lines) && marker(p.lines[p.i], "---") {
-		p.i++
-		p.skip()
-	} else if hadDirective {
-		return nil, errAt(0, "a YAML directive requires ---")
-	}
-	var n *syntax.Node
-	var e error
-	if p.i == len(p.lines) || marker(p.lines[p.i], "...") {
-		pos := len(src)
-		if p.i < len(p.lines) {
-			pos = p.lines[p.i].start
-		}
-		n = &syntax.Node{Kind: syntax.Null, Start: pos, End: pos}
-	} else {
-		n, e = p.block(p.lines[p.i].indent)
-		if e != nil {
-			return nil, e
-		}
-	}
-	p.skip()
-	if p.i < len(p.lines) && marker(p.lines[p.i], "...") {
-		p.i++
-		p.skip()
-	}
-	if p.i < len(p.lines) {
-		return nil, errAt(p.lines[p.i].start, "unexpected content or multiple YAML documents")
-	}
-	syntax.Link(n)
-	return n, nil
+	return version, hadDirective, nil
 }
+
+func (p *parser) endMarker() error {
+	l := p.lines[p.i]
+	rest := strings.TrimLeft(l.text[3:], " \t")
+	if rest != "" && rest[0] != '#' {
+		return errAt(l.start+3, "unexpected content after document end marker")
+	}
+	p.i++
+	return nil
+}
+
+func emptyScalar(pos int) *syntax.Node {
+	return &syntax.Node{Kind: syntax.Null, Start: pos, End: pos, Style: "plain", Meta: map[string]any{"scalarValue": ""}}
+}
+
 func marker(l line, s string) bool {
-	return l.indent == 0 && (l.text == s || strings.HasPrefix(l.text, s+" ") && strings.HasPrefix(strings.TrimSpace(l.text[len(s):]), "#"))
+	if l.inlineRoot || l.indent != 0 || !strings.HasPrefix(l.text, s) {
+		return false
+	}
+	rest := l.text[len(s):]
+	if rest == "" {
+		return true
+	}
+	if rest[0] != ' ' && rest[0] != '\t' {
+		return false
+	}
+	return true
 }
 func (p *parser) skip() {
-	for p.i < len(p.lines) && (strings.TrimSpace(p.lines[p.i].text) == "" || strings.HasPrefix(strings.TrimLeft(p.lines[p.i].text, " \t"), "#")) {
+	for p.i < len(p.lines) && (strings.Trim(p.lines[p.i].text, " \t") == "" || strings.HasPrefix(strings.TrimLeft(p.lines[p.i].text, " \t"), "#")) {
 		p.i++
 	}
+}
+func explicitKey(s string) bool {
+	return s == "?" || strings.HasPrefix(s, "? ") || strings.HasPrefix(s, "?\t")
 }
 func seq(s string) bool { return s == "-" || strings.HasPrefix(s, "- ") || strings.HasPrefix(s, "-\t") }
 func colon(s string) int {
+	start := 0
+	for start < len(s) && (s[start] == '&' || s[start] == '!' || s[start] == '*') {
+		for start < len(s) && s[start] != ' ' && s[start] != '\t' {
+			start++
+		}
+		for start < len(s) && (s[start] == ' ' || s[start] == '\t') {
+			start++
+		}
+	}
 	quote := byte(0)
 	depth := 0
-	for i := 0; i < len(s); i++ {
+	for i := start; i < len(s); i++ {
 		c := s[i]
 		if quote != 0 {
 			if quote == '"' && c == '\\' {
@@ -146,13 +274,17 @@ func colon(s string) int {
 		}
 		switch c {
 		case '\'', '"':
-			if i == 0 || depth > 0 && (i == 0 || strings.ContainsRune("[{: ,\t", rune(s[i-1]))) {
+			if i == start || depth > 0 && (i == start || strings.ContainsRune("[{: ,\t", rune(s[i-1]))) {
 				quote = c
 			}
 		case '[', '{':
-			depth++
+			if i == start || depth > 0 {
+				depth++
+			}
 		case ']', '}':
-			depth--
+			if depth > 0 {
+				depth--
+			}
 		case '#':
 			if i == 0 || s[i-1] == ' ' || s[i-1] == '\t' {
 				return -1
@@ -165,28 +297,28 @@ func colon(s string) int {
 	}
 	return -1
 }
-func (p *parser) block(indent int) (*syntax.Node, error) {
-	p.depth++
-	defer func() { p.depth-- }()
-	if p.depth > 256 {
-		return nil, errAt(p.lines[p.i].start, "nesting limit exceeded")
+func (p *parser) block(indent, parentIndent int) (*syntax.Node, error) {
+	p.propertyDepth++
+	defer func() { p.propertyDepth-- }()
+	if p.propertyDepth > 256 {
+		return nil, errAt(p.lines[p.i].start, "property nesting limit exceeded")
 	}
 	l := p.lines[p.i]
-	if strings.HasPrefix(l.text, "\t") {
+	if strings.HasPrefix(l.text, "\t") && (seq(strings.TrimLeft(l.text, " \t")) || colon(strings.TrimLeft(l.text, " \t")) >= 0) {
 		return nil, errAt(l.start+l.indent, "tab indentation is not allowed")
 	}
 	if seq(l.text) {
 		return p.sequence(indent)
 	}
-	if colon(l.text) >= 0 {
+	if explicitKey(l.text) || colon(l.text) >= 0 {
 		return p.mapping(indent, -1)
 	}
 	p.i++
-	valueIndent := indent
-	if p.src[l.start+l.indent] != '|' && p.src[l.start+l.indent] != '>' {
-		valueIndent--
+	start := l.start + l.indent
+	for start < l.end && (p.src[start] == ' ' || p.src[start] == '\t') {
+		start++
 	}
-	n, e := p.value(l.start+l.indent, l.end, valueIndent)
+	n, e := p.value(start, l.end, parentIndent)
 	if e != nil {
 		return nil, e
 	}
@@ -195,8 +327,8 @@ func (p *parser) block(indent int) (*syntax.Node, error) {
 	if hasAnchor || hasTag {
 		save := p.i
 		p.skip()
-		if p.i < len(p.lines) && p.lines[p.i].indent >= indent && !marker(p.lines[p.i], "---") && !marker(p.lines[p.i], "...") {
-			n, e = p.block(p.lines[p.i].indent)
+		if p.i < len(p.lines) && (p.lines[p.i].indent > parentIndent || p.lines[p.i].indent == parentIndent && seq(p.lines[p.i].text)) && !marker(p.lines[p.i], "---") && !marker(p.lines[p.i], "...") {
+			n, e = p.block(p.lines[p.i].indent, parentIndent)
 			if e != nil {
 				return nil, e
 			}
@@ -209,7 +341,7 @@ func (p *parser) block(indent int) (*syntax.Node, error) {
 			}
 		}
 		if hasAnchor {
-			if e = p.bind(n, anchor); e != nil {
+			if n, e = p.bind(n, anchor); e != nil {
 				return nil, e
 			}
 		}
@@ -221,8 +353,15 @@ func (p *parser) block(indent int) (*syntax.Node, error) {
 	return n, nil
 }
 func (p *parser) mapping(indent, first int) (*syntax.Node, error) {
+	propertyDepth := p.propertyDepth
+	p.propertyDepth = 0
+	defer func() { p.propertyDepth = propertyDepth }()
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > 256 {
+		return nil, errAt(p.lines[p.i].start, "nesting limit exceeded")
+	}
 	n := &syntax.Node{Kind: syntax.Object, Style: "block", Meta: map[string]any{"indent": indent}}
-	seen := map[string]bool{}
 	n.Start = -1
 	for {
 		p.skip()
@@ -240,49 +379,89 @@ func (p *parser) mapping(indent, first int) (*syntax.Node, error) {
 		} else if l.indent != indent || seq(l.text) || marker(l, "---") || marker(l, "...") {
 			break
 		}
-		s := string(p.src[start:l.end])
-		c := colon(s)
-		if c < 0 {
-			return nil, errAt(start, "expected a mapping key followed by ':'")
+		entryStart := start
+		keyStart, c := start, -1
+		var keyEnd int
+		var key string
+		var keyNode *syntax.Node
+		explicit := explicitKey(string(p.src[start:l.end]))
+		if explicit {
+			var err error
+			keyNode, err = p.explicitNodeKey(start, l.end, indent)
+			if err != nil {
+				return nil, err
+			}
+			key, keyStart, keyEnd = keySpelling(keyNode), keyNode.Start, keyNode.End
+		} else {
+			s := string(p.src[start:l.end])
+			c = colon(s)
+			if c < 0 {
+				return nil, errAt(start, "expected a mapping key followed by ':'")
+			}
+			keyEnd = start + c
+			for keyEnd > start && (p.src[keyEnd-1] == ' ' || p.src[keyEnd-1] == '\t') {
+				keyEnd--
+			}
+			var err error
+			if keyEnd == start {
+				keyNode = emptyScalar(start)
+			} else if strings.ContainsRune("'\"&*![{", rune(p.src[start])) {
+				keyParser := &flow{p: p, pos: start, limit: keyEnd, depth: p.depth, minIndent: indent + 1}
+				keyNode, err = keyParser.node(false)
+				if err != nil {
+					return nil, err
+				}
+				if keyParser.pos != keyEnd {
+					return nil, errAt(keyParser.pos, "unexpected mapping key content")
+				}
+			} else {
+				if strings.ContainsRune("@`%|>", rune(p.src[start])) {
+					return nil, errAt(start, "invalid mapping key indicator")
+				}
+				keyNode, err = scalar(string(p.src[start:keyEnd]), start, keyEnd)
+				if err != nil {
+					return nil, err
+				}
+			}
+			key = keySpelling(keyNode)
 		}
-		keyEnd := start + c
-		for keyEnd > start && (p.src[keyEnd-1] == ' ' || p.src[keyEnd-1] == '\t') {
-			keyEnd--
+
+		var v *syntax.Node
+		var e error
+		if explicit {
+			p.skip()
+			colonPosition, inlineValue := keyNode.Meta["explicitColon"].(int)
+			if inlineValue {
+				p.i = sort.Search(len(p.lines), func(i int) bool { return p.lines[i].end >= colonPosition })
+			}
+			if inlineValue || p.i < len(p.lines) && p.lines[p.i].indent == indent && (p.lines[p.i].text == ":" || strings.HasPrefix(p.lines[p.i].text, ": ") || strings.HasPrefix(p.lines[p.i].text, ":\t")) {
+				valueLine := p.lines[p.i]
+				pos := valueLine.start + indent + 1
+				if inlineValue {
+					pos = colonPosition + 1
+				}
+				for pos < valueLine.end && (p.src[pos] == ' ' || p.src[pos] == '\t') {
+					pos++
+				}
+				if pos < valueLine.end && (seq(string(p.src[pos:valueLine.end])) || explicitKey(string(p.src[pos:valueLine.end])) || colon(string(p.src[pos:valueLine.end])) >= 0) {
+					v, e = p.compactBlock(pos, p.i, indent)
+				} else {
+					p.i++
+					v, e = p.value(pos, valueLine.end, indent)
+				}
+			} else {
+				position := p.extentEnd(keyEnd, l.next)
+				v = emptyScalar(position)
+				v.Meta["explicitMissingValue"], v.Meta["indent"] = true, indent
+			}
+		} else {
+			pos := start + c + 1
+			for pos < l.end && (p.src[pos] == ' ' || p.src[pos] == '\t') {
+				pos++
+			}
+			p.i++
+			v, e = p.value(pos, l.end, indent)
 		}
-		if keyEnd == start {
-			return nil, errAt(start, "empty mapping keys are unsupported")
-		}
-		if strings.ContainsRune("&*!", rune(p.src[start])) {
-			return nil, errAt(start, "node properties and aliases in mapping keys are unsupported")
-		}
-		keyParser := &flow{p: p, pos: start, limit: keyEnd}
-		keyNode, e := keyParser.node(false)
-		if e != nil {
-			return nil, e
-		}
-		if keyParser.pos != keyEnd {
-			return nil, errAt(keyParser.pos, "unexpected mapping key content")
-		}
-		if keyNode.Kind == syntax.Array || keyNode.Kind == syntax.Object {
-			return nil, errAt(start, "complex mapping keys are unsupported")
-		}
-		key := string(p.src[start:keyEnd])
-		if keyNode.Kind == syntax.String {
-			key = keyNode.Value.(string)
-		}
-		if key == "<<" {
-			return nil, errAt(start, "merge keys are unsupported")
-		}
-		if seen[key] {
-			return nil, errAt(start, "duplicate mapping key "+strconv.Quote(key))
-		}
-		seen[key] = true
-		pos := start + c + 1
-		for pos < l.end && (p.src[pos] == ' ' || p.src[pos] == '\t') {
-			pos++
-		}
-		p.i++
-		v, e := p.value(pos, l.end, indent)
 		if e != nil {
 			return nil, e
 		}
@@ -292,7 +471,7 @@ func (p *parser) mapping(indent, first int) (*syntax.Node, error) {
 			save := p.i
 			p.skip()
 			if p.i < len(p.lines) && (p.lines[p.i].indent > indent || (p.lines[p.i].indent == indent && seq(p.lines[p.i].text))) {
-				v, e = p.block(p.lines[p.i].indent)
+				v, e = p.block(p.lines[p.i].indent, indent)
 				if e != nil {
 					return nil, e
 				}
@@ -308,12 +487,15 @@ func (p *parser) mapping(indent, first int) (*syntax.Node, error) {
 			}
 		}
 		if hasAnchor {
-			if e = p.bind(v, anchor); e != nil {
+			if v, e = p.bind(v, anchor); e != nil {
 				return nil, e
 			}
 		}
 		end := v.End
-		entry := &syntax.Entry{Key: key, KeyStart: start, KeyEnd: keyEnd, Start: start, End: end, Value: v, Meta: map[string]any{"lineStart": l.start, "lineEnd": l.next, "headerEnd": l.end}}
+		entry := &syntax.Entry{Key: key, KeyStart: keyStart, KeyEnd: keyEnd, Start: entryStart, End: end, Value: v, Meta: map[string]any{"lineStart": l.start, "lineEnd": l.next, "headerEnd": l.end}}
+		if keyNode != nil {
+			entry.Meta["keyNode"] = keyNode
+		}
 		entry.Meta["deleteEnd"] = p.extentEnd(end, l.next)
 		n.Entries = append(n.Entries, entry)
 		if n.Start < 0 {
@@ -326,6 +508,94 @@ func (p *parser) mapping(indent, first int) (*syntax.Node, error) {
 	}
 	return n, nil
 }
+func (p *parser) explicitNodeKey(start, end, indent int) (*syntax.Node, error) {
+	pos := start + 1
+	for pos < end && (p.src[pos] == ' ' || p.src[pos] == '\t') {
+		pos++
+	}
+	var n *syntax.Node
+	var err error
+
+	if pos < end && (seq(string(p.src[pos:end])) || explicitKey(string(p.src[pos:end])) || colon(string(p.src[pos:end])) >= 0) {
+		return p.compactBlock(pos, p.i, indent)
+	}
+	if pos < end && strings.ContainsRune("[{\"'", rune(p.src[pos])) {
+		f := &flow{p: p, pos: pos, limit: len(p.src), depth: p.depth, minIndent: indent + 1}
+		n, err = f.node(false)
+		if err != nil {
+			return nil, err
+		}
+		rest := f.pos
+		for rest < len(p.src) && (p.src[rest] == ' ' || p.src[rest] == '\t') {
+			rest++
+		}
+		if rest < len(p.src) && p.src[rest] == ':' && (rest+1 == len(p.src) || strings.ContainsRune(" \t\r\n", rune(p.src[rest+1]))) {
+			n.Meta = meta(n.Meta)
+			n.Meta["explicitColon"] = rest
+		}
+		for p.i < len(p.lines) && p.lines[p.i].start < n.End {
+			p.i++
+		}
+	} else {
+		p.i++
+		n, err = p.value(pos, end, indent)
+		if err != nil {
+			return nil, err
+		}
+	}
+	anchor, hasAnchor := pending(n)
+	tag, hasTag := pendingTag(n)
+	if n.Kind == syntax.Null && n.Start == n.End {
+		p.skip()
+		if p.i < len(p.lines) && (p.lines[p.i].indent > indent || p.lines[p.i].indent == indent && seq(p.lines[p.i].text)) {
+			n, err = p.block(p.lines[p.i].indent, indent)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if hasTag {
+		if err := p.applyTag(n, tag); err != nil {
+			return nil, err
+		}
+	}
+	if hasAnchor {
+		n, err = p.bind(n, anchor)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return n, nil
+}
+
+func (p *parser) compactBlock(start, index, parentIndent int) (*syntax.Node, error) {
+	original := p.lines[index]
+	separation := start
+	for separation > original.start && (p.src[separation-1] == ' ' || p.src[separation-1] == '\t') {
+		separation--
+	}
+	if strings.ContainsRune(string(p.src[separation:start]), '\t') {
+		return nil, errAt(separation, "tab indentation is not allowed")
+	}
+	current := original
+	current.indent, current.text = start-original.start, string(p.src[start:original.end])
+	p.lines[index] = current
+	n, err := p.block(current.indent, parentIndent)
+	p.lines[index] = original
+	if err == nil {
+		n.Meta = meta(n.Meta)
+		n.Meta["compact"] = true
+	}
+	return n, err
+}
+
+func keySpelling(n *syntax.Node) string {
+	if value, ok := n.Meta["scalarValue"].(string); ok {
+		return value
+	}
+	return ""
+}
+
 func meta(m map[string]any) map[string]any {
 	if m == nil {
 		return map[string]any{}
@@ -336,8 +606,10 @@ func (p *parser) extentEnd(end, fallback int) int {
 	if end > 0 && end <= len(p.src) && (p.src[end-1] == '\n' || p.src[end-1] == '\r') {
 		return end
 	}
-	for _, l := range p.lines {
-		if l.end == end || l.start <= end && end < l.end {
+	i := sort.Search(len(p.lines), func(i int) bool { return p.lines[i].end >= end })
+	if i < len(p.lines) {
+		l := p.lines[i]
+		if l.start <= end {
 			return l.next
 		}
 	}
@@ -347,6 +619,9 @@ func (p *parser) extentEnd(end, fallback int) int {
 	return fallback
 }
 func (p *parser) sequence(indent int) (*syntax.Node, error) {
+	propertyDepth := p.propertyDepth
+	p.propertyDepth = 0
+	defer func() { p.propertyDepth = propertyDepth }()
 	p.depth++
 	defer func() { p.depth-- }()
 	if p.depth > 256 {
@@ -368,23 +643,8 @@ func (p *parser) sequence(indent int) (*syntax.Node, error) {
 		}
 		var v *syntax.Node
 		var e error
-		if pos < l.end && seq(string(p.src[pos:l.end])) {
-			original := p.lines[p.i]
-			temp := original
-			temp.indent = pos - l.start
-			temp.text = string(p.src[pos:l.end])
-			at := p.i
-			p.lines[at] = temp
-			v, e = p.sequence(temp.indent)
-			p.lines[at] = original
-			if e == nil {
-				v.Meta["compact"] = true
-			}
-		} else if pos < l.end && colon(string(p.src[pos:l.end])) >= 0 {
-			v, e = p.mapping(pos-l.start, pos)
-			if e == nil {
-				v.Meta["compact"] = true
-			}
+		if pos < l.end && (seq(string(p.src[pos:l.end])) || explicitKey(string(p.src[pos:l.end])) || colon(string(p.src[pos:l.end])) >= 0) {
+			v, e = p.compactBlock(pos, p.i, indent)
 		} else {
 			p.i++
 			v, e = p.value(pos, l.end, indent)
@@ -400,7 +660,7 @@ func (p *parser) sequence(indent int) (*syntax.Node, error) {
 				save := p.i
 				p.skip()
 				if p.i < len(p.lines) && p.lines[p.i].indent > indent {
-					v, e = p.block(p.lines[p.i].indent)
+					v, e = p.block(p.lines[p.i].indent, indent)
 					if e == nil {
 						v.Meta = meta(v.Meta)
 						v.Meta["nested"] = true
@@ -413,7 +673,7 @@ func (p *parser) sequence(indent int) (*syntax.Node, error) {
 				e = p.applyTag(v, tag)
 			}
 			if e == nil && hasAnchor {
-				e = p.bind(v, anchor)
+				v, e = p.bind(v, anchor)
 			}
 		}
 		if e != nil {
@@ -428,35 +688,44 @@ func (p *parser) sequence(indent int) (*syntax.Node, error) {
 	return n, nil
 }
 func (p *parser) value(start, end, indent int) (*syntax.Node, error) {
+	p.propertyDepth++
+	defer func() { p.propertyDepth-- }()
+	if p.propertyDepth > 256 {
+		return nil, errAt(start, "property nesting limit exceeded")
+	}
 	if start >= end || p.src[start] == '#' {
-		return &syntax.Node{Kind: syntax.Null, Start: start, End: start}, nil
+		return emptyScalar(start), nil
 	}
 	if p.src[start] == '&' {
 		a, next, e := property(p.src, start, end)
 		if e != nil {
 			return nil, e
 		}
+		a.target = p.beginAnchor(a)
 		for next < end && (p.src[next] == ' ' || p.src[next] == '\t') {
 			next++
 		}
 		if next == end || p.src[next] == '#' {
-			return &syntax.Node{Kind: syntax.Null, Start: next, End: next, Meta: map[string]any{"pendingAnchor": a}}, nil
+			return &syntax.Node{Kind: syntax.Null, Start: next, End: next, Meta: map[string]any{"pendingAnchor": a, "scalarValue": ""}}, nil
 		}
 		n, e := p.value(next, end, indent)
 		if e != nil {
 			return nil, e
 		}
 		if _, ok := pendingTag(n); ok {
+			if _, exists := pending(n); exists {
+				return nil, errAt(a.start, "duplicate anchor properties")
+			}
 			n.Meta["pendingAnchor"] = a
 			return n, nil
 		}
-		if e = p.bind(n, a); e != nil {
+		if n, e = p.bind(n, a); e != nil {
 			return nil, e
 		}
 		return n, nil
 	}
 	if p.src[start] == '!' {
-		tag, next, e := tagProperty(p.src, start, end)
+		tag, next, e := p.tagProperty(p.src, start, end)
 		if e != nil {
 			return nil, e
 		}
@@ -464,18 +733,16 @@ func (p *parser) value(start, end, indent int) (*syntax.Node, error) {
 			next++
 		}
 		if next == end || p.src[next] == '#' {
-			return &syntax.Node{Kind: syntax.Null, Start: next, End: next, Meta: map[string]any{"pendingTag": tag}}, nil
-		}
-		oldForce := p.forceString
-		if tag.name == "str" {
-			p.forceString = true
+			return &syntax.Node{Kind: syntax.Null, Start: next, End: next, Meta: map[string]any{"pendingTag": tag, "scalarValue": ""}}, nil
 		}
 		n, e := p.value(next, end, indent)
-		p.forceString = oldForce
 		if e != nil {
 			return nil, e
 		}
 		if _, ok := pending(n); ok {
+			if _, exists := pendingTag(n); exists {
+				return nil, errAt(tag.start, "duplicate tag properties")
+			}
 			n.Meta["pendingTag"] = tag
 			return n, nil
 		}
@@ -513,7 +780,7 @@ func (p *parser) value(start, end, indent int) (*syntax.Node, error) {
 			}
 			j := p.i
 			blanks := 0
-			for j < len(p.lines) && strings.TrimSpace(p.lines[j].text) == "" {
+			for j < len(p.lines) && strings.Trim(p.lines[j].text, " \t") == "" {
 				blanks++
 				j++
 			}
@@ -524,10 +791,13 @@ func (p *parser) value(start, end, indent int) (*syntax.Node, error) {
 				break
 			}
 			l := p.lines[j]
-			if seq(l.text) || colon(l.text) >= 0 {
+			if colon(l.text) >= 0 {
 				return nil, errAt(l.start, "invalid plain scalar continuation")
 			}
 			a, b := l.start+l.indent, l.end
+			for a < b && (p.src[a] == ' ' || p.src[a] == '\t') {
+				a++
+			}
 			for k := a; k < b; k++ {
 				if p.src[k] == '#' && (k == a || p.src[k-1] == ' ' || p.src[k-1] == '\t') {
 					b = k
@@ -554,6 +824,8 @@ func (p *parser) value(start, end, indent int) (*syntax.Node, error) {
 		if continued {
 			n.Kind = syntax.String
 			n.Value = value
+			n.Meta = meta(n.Meta)
+			n.Meta["scalarValue"] = value
 			n.Style = "multiline-plain"
 			n.Meta = meta(n.Meta)
 			n.Meta["segments"] = segments

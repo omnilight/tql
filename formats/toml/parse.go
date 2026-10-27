@@ -1,4 +1,4 @@
-// Package toml implements source-aware TOML 1.0 parsing and edit planning.
+// Package toml implements source-aware TOML 1.1 parsing and edit planning.
 package toml
 
 import (
@@ -22,6 +22,7 @@ type parser struct {
 	pos           int
 	root, current *syntax.Node
 	depth         int
+	entries       map[*syntax.Node]map[string]*syntax.Node
 }
 
 func object(style string) *syntax.Node {
@@ -92,7 +93,7 @@ func (Format) Parse(src []byte) (*syntax.Node, error) {
 	if !utf8.Valid(src) {
 		return nil, fmt.Errorf("toml: invalid UTF-8")
 	}
-	p := &parser{src: src, root: object("table")}
+	p := &parser{src: src, root: object("table"), entries: make(map[*syntax.Node]map[string]*syntax.Node)}
 	p.current = p.root
 	for {
 		if err := p.trivia(); err != nil {
@@ -179,19 +180,23 @@ func (p *parser) keypath() ([]string, int, int, error) {
 	}
 	return keys, start, p.pos, nil
 }
-func addEntry(n *syntax.Node, key string, v *syntax.Node, ks, ke, start, end int) *syntax.Entry {
+func (p *parser) addEntry(n *syntax.Node, key string, v *syntax.Node, ks, ke, start, end int) *syntax.Entry {
 	e := &syntax.Entry{Key: key, Value: v, KeyStart: ks, KeyEnd: ke, Start: start, End: end, Meta: map[string]any{}}
 	n.Entries = append(n.Entries, e)
+	if p.entries[n] == nil {
+		p.entries[n] = make(map[string]*syntax.Node)
+	}
+	p.entries[n][key] = v
 	v.Parent = n
 	return e
 }
 func (p *parser) assign(n *syntax.Node, keys []string, v *syntax.Node, ks, ke, start, end int) error {
 	for _, k := range keys[:len(keys)-1] {
-		next := n.Get(k)
+		next := p.entries[n][k]
 		if next == nil {
 			next = object("table")
 			next.Meta["dotted"] = true
-			addEntry(n, k, next, ks, ke, -1, -1)
+			p.addEntry(n, k, next, ks, ke, -1, -1)
 		} else if next.Kind != syntax.Object || next.Style == "inline" || next.Meta["explicit"] == true {
 			return p.err("key traverses a value")
 		}
@@ -201,10 +206,10 @@ func (p *parser) assign(n *syntax.Node, keys []string, v *syntax.Node, ks, ke, s
 		n = next
 	}
 	k := keys[len(keys)-1]
-	if n.Get(k) != nil {
+	if p.entries[n][k] != nil {
 		return p.err("duplicate key " + k)
 	}
-	addEntry(n, k, v, ks, ke, start, end)
+	p.addEntry(n, k, v, ks, ke, start, end)
 	return nil
 }
 func (p *parser) header() error {
@@ -234,11 +239,11 @@ func (p *parser) header() error {
 	n := p.root
 	for i, k := range keys {
 		last := i == len(keys)-1
-		child := n.Get(k)
+		child := p.entries[n][k]
 		if last && array {
 			if child == nil {
 				child = &syntax.Node{Kind: syntax.Array, Start: -1, End: -1, Style: "tables", Meta: map[string]any{}}
-				addEntry(n, k, child, -1, -1, -1, -1)
+				p.addEntry(n, k, child, -1, -1, -1, -1)
 			}
 			if child.Kind != syntax.Array || child.Style != "tables" {
 				return p.err("array table conflicts with existing value")
@@ -254,7 +259,7 @@ func (p *parser) header() error {
 		}
 		if child == nil {
 			child = object("table")
-			addEntry(n, k, child, -1, -1, -1, -1)
+			p.addEntry(n, k, child, -1, -1, -1, -1)
 		}
 		if child.Kind == syntax.Array && child.Style == "tables" {
 			if len(child.Items) == 0 {
@@ -370,11 +375,16 @@ func (p *parser) stringValue() (*syntax.Node, error) {
 				b.WriteByte('\f')
 			case 'r':
 				b.WriteByte('\r')
+			case 'e':
+				b.WriteByte(0x1b)
 			case '"', '\\':
 				b.WriteByte(e)
-			case 'u', 'U':
+			case 'x', 'u', 'U':
 				count := 4
-				if e == 'U' {
+				switch e {
+				case 'x':
+					count = 2
+				case 'U':
 					count = 8
 				}
 				if p.pos+count > len(p.src) {
@@ -446,7 +456,9 @@ func (p *parser) inline() (*syntax.Node, error) {
 	n := object("inline")
 	n.Start = p.pos
 	p.pos++
-	p.spaces()
+	if err := p.trivia(); err != nil {
+		return nil, err
+	}
 	if p.peek() == '}' {
 		p.pos++
 		n.End = p.pos
@@ -470,7 +482,9 @@ func (p *parser) inline() (*syntax.Node, error) {
 		if e = p.assign(n, keys, v, ks, ke, start, p.pos); e != nil {
 			return nil, e
 		}
-		p.spaces()
+		if err := p.trivia(); err != nil {
+			return nil, err
+		}
 		if p.peek() == '}' {
 			p.pos++
 			n.End = p.pos
@@ -480,9 +494,13 @@ func (p *parser) inline() (*syntax.Node, error) {
 			return nil, p.err("expected comma or }")
 		}
 		p.pos++
-		p.spaces()
+		if err := p.trivia(); err != nil {
+			return nil, err
+		}
 		if p.peek() == '}' {
-			return nil, p.err("trailing comma in inline table")
+			p.pos++
+			n.End = p.pos
+			return n, nil
 		}
 	}
 }
@@ -490,7 +508,7 @@ func (p *parser) inline() (*syntax.Node, error) {
 var decimalInt = regexp.MustCompile(`^[+-]?(0|[1-9](_?[0-9])*)$`)
 var baseInt = regexp.MustCompile(`^0(x[0-9a-fA-F](_?[0-9a-fA-F])*|o[0-7](_?[0-7])*|b[01](_?[01])*)$`)
 var floatRE = regexp.MustCompile(`^[+-]?(0|[1-9](_?[0-9])*)(\.[0-9](_?[0-9])*)?([eE][+-]?[0-9](_?[0-9])*)?$`)
-var temporalRE = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}([Tt ]\d{2}:\d{2}:\d{2}(\.[0-9]+)?([Zz]|[+-]\d{2}:\d{2})?)?|\d{2}:\d{2}:\d{2}(\.[0-9]+)?)$`)
+var temporalRE = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}([Tt ]\d{2}:\d{2}(:\d{2}(\.[0-9]+)?)?([Zz]|[+-]\d{2}:\d{2})?)?|\d{2}:\d{2}(:\d{2}(\.[0-9]+)?)?)$`)
 
 func validTime(s string) bool {
 	if len(s) >= 6 && (s[len(s)-6] == '-' || s[len(s)-6] == '+') && s[len(s)-3] == ':' {
@@ -500,6 +518,13 @@ func validTime(s string) bool {
 		}
 	}
 	s = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, "t", "T"), "z", "Z"), " ", "T")
+	clock := 0
+	if len(s) > 10 && s[10] == 'T' {
+		clock = 11
+	}
+	if len(s) >= clock+5 && s[clock+2] == ':' && (len(s) == clock+5 || s[clock+5] != ':') {
+		s = s[:clock+5] + ":00" + s[clock+5:]
+	}
 	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.999999999", "2006-01-02", "15:04:05.999999999"} {
 		if _, e := time.Parse(layout, s); e == nil {
 			return true
