@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -16,6 +17,11 @@ func Equal(a, b any) bool {
 		y, ok := b.(syntax.Number)
 		if !ok {
 			return false
+		}
+		if xi, ok := smallInt(x); ok {
+			if yi, ok := smallInt(y); ok {
+				return xi == yi
+			}
 		}
 		cmp, err := compareNumbers(x, y)
 		if err == nil {
@@ -103,6 +109,13 @@ func Operation(op string, a, b any) (any, error) {
 					out[k] = v
 				}
 				return out, nil
+			}
+		}
+	}
+	if ai, ok := smallIntValue(a); ok {
+		if bi, ok := smallIntValue(b); ok {
+			if result, ok := integerOperation(op, ai, bi); ok {
+				return result, nil
 			}
 		}
 	}
@@ -261,6 +274,18 @@ func canonicalNumber(n syntax.Number) (canonical, error) {
 	return c, nil
 }
 func compareNumbers(a, b syntax.Number) (int, error) {
+	if ai, ok := smallInt(a); ok {
+		if bi, ok := smallInt(b); ok {
+			switch {
+			case ai < bi:
+				return -1, nil
+			case ai > bi:
+				return 1, nil
+			default:
+				return 0, nil
+			}
+		}
+	}
 	x, e := canonicalNumber(a)
 	if e != nil {
 		return 0, e
@@ -313,4 +338,58 @@ func compareNumbers(a, b syntax.Number) (int, error) {
 		}
 	}
 	return 0, nil
+}
+
+// smallInt accepts canonical integer spellings that fit int64. Decimal,
+// exponent and non-canonical spellings use the exact rational path.
+func smallInt(n syntax.Number) (int64, bool) {
+	s := string(n)
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || strconv.FormatInt(v, 10) != s {
+		return 0, false
+	}
+	return v, true
+}
+
+func smallIntValue(v any) (int64, bool) {
+	n, ok := v.(syntax.Number)
+	if !ok {
+		return 0, false
+	}
+	return smallInt(n)
+}
+
+func integerOperation(op string, a, b int64) (syntax.Number, bool) {
+	switch op {
+	case "+":
+		c := a + b
+		if (b > 0 && c < a) || (b < 0 && c > a) {
+			return "", false
+		}
+		return syntax.Number(strconv.FormatInt(c, 10)), true
+	case "-":
+		if (b < 0 && a > math.MaxInt64+b) || (b > 0 && a < math.MinInt64+b) {
+			return "", false
+		}
+		return syntax.Number(strconv.FormatInt(a-b, 10)), true
+	case "*":
+		if a == 0 || b == 0 {
+			return "0", true
+		}
+		if a == -1<<63 && b == -1 || b == -1<<63 && a == -1 {
+			return "", false
+		}
+		c := a * b
+		if c/b != a {
+			return "", false
+		}
+		return syntax.Number(strconv.FormatInt(c, 10)), true
+	case "%":
+		if b == 0 {
+			return "", false
+		}
+		return syntax.Number(strconv.FormatInt(a%b, 10)), true
+	default:
+		return "", false
+	}
 }

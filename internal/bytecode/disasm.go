@@ -97,7 +97,7 @@ func Disassemble(p *Program) string {
 		if loop.Kind == LoopFor {
 			kind = "for"
 		}
-		fmt.Fprintf(&b, ".loop L%d %s continue=%d break=%d scope=%d varslot=%d\n", i, kind, loop.Continue, loop.Break, loop.Scope, loop.VarSlot)
+		fmt.Fprintf(&b, ".loop L%d %s continue=%d break=%d scope=%d varslot=%d readonly=%t\n", i, kind, loop.Continue, loop.Break, loop.Scope, loop.VarSlot, loop.ReadOnly)
 	}
 	for i, code := range p.Codes {
 		fmt.Fprintf(&b, ".code C%d %s %d\n", i, syntax.Quote(code.Name), code.Registers)
@@ -126,7 +126,7 @@ func formatOp(op Op) string {
 		return fmt.Sprintf("%s %d S%d", name, op.A, op.B)
 	case OpMissingVar, OpFail:
 		return fmt.Sprintf("%s K%d", name, op.A)
-	case OpOne, OpArg, OpNode, OpTruth:
+	case OpOne, OpArg, OpNode, OpTruth, OpAnyTruth:
 		return fmt.Sprintf("%s %d %d", name, op.A, op.B)
 	case OpSteps:
 		return fmt.Sprintf("%s %d %d P%d", name, op.A, op.B, op.C)
@@ -154,7 +154,7 @@ func formatOp(op Op) string {
 		return fmt.Sprintf("%s %d K%d A%d", name, op.A, op.B, op.C)
 	case OpTick, OpHalt, OpStmtLeave, OpExitScope:
 		return name
-	case OpRead:
+	case OpRead, OpReadValue:
 		return fmt.Sprintf("%s %d", name, op.A)
 	case OpCheckDeclare:
 		return fmt.Sprintf("%s K%d", name, op.A)

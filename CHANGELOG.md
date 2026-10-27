@@ -15,6 +15,9 @@
   workloads remain neutral. See `docs/bytecode-performance.md`.
 - Add a SIMD rune-count fast path for `length(string)` on Go 1.27+ with
   `GOEXPERIMENT=simd`, retaining scalar and `purego` fallbacks.
+- Reduce VM overhead with scalar truth predicates, single-node path fast paths,
+  integer arithmetic before exact rational arithmetic, read-only loop bindings,
+  direct scalar reads and pooled execution frames.
 
 ## v0.4.0
 

@@ -12,7 +12,17 @@ import (
 func (v *scriptVM) applyPath(nodes []*syntax.Node, plan *bytecode.PathPlan) ([]*syntax.Node, error) {
 	current := nodes
 	for _, step := range plan.Steps {
-		next := make([]*syntax.Node, 0, len(current))
+		if len(current) == 1 && (step.Kind == bytecode.StepKey || step.Kind == bytecode.StepIndex) {
+			out := v.pathOne[:0]
+			var err error
+			out, err = v.appendStep(out, step, current[0])
+			if err != nil {
+				return nil, err
+			}
+			current = out
+			continue
+		}
+		next := make([]*syntax.Node, 0, pathCapacity(current, step))
 		for _, n := range current {
 			var err error
 			next, err = v.appendStep(next, step, n)
@@ -99,34 +109,106 @@ func (v *scriptVM) appendStep(out []*syntax.Node, step bytecode.Step, n *syntax.
 		}
 		return v.appendStep(out, resolved, n)
 	case bytecode.StepFilter:
-		var items []*syntax.Node
 		switch n.Kind {
 		case syntax.Array:
-			items = n.Items
+			for _, item := range n.Items {
+				keep, err := v.filterValue(step.Code, item)
+				if err != nil {
+					return nil, err
+				}
+				if keep {
+					out = append(out, item)
+				}
+			}
 		case syntax.Object:
-			items = make([]*syntax.Node, 0, len(n.Entries))
 			for _, entry := range n.Entries {
-				items = append(items, entry.Value)
+				keep, err := v.filterValue(step.Code, entry.Value)
+				if err != nil {
+					return nil, err
+				}
+				if keep {
+					out = append(out, entry.Value)
+				}
 			}
 		default:
 			return nil, fmt.Errorf("cannot iterate %s", n.Kind)
-		}
-		for _, item := range items {
-			result, err := v.evalCode(step.Code, item)
-			if err != nil {
-				return nil, err
-			}
-			for _, value := range result.nodes {
-				if query.Truth(value.Interface()) {
-					out = append(out, item)
-					break
-				}
-			}
 		}
 		return out, nil
 	default:
 		return nil, fmt.Errorf("invalid bytecode: path step %d", step.Kind)
 	}
+}
+
+func pathCapacity(nodes []*syntax.Node, step bytecode.Step) int {
+	// Key, index and dynamic steps usually emit at most one value per input.
+	// Starting small avoids allocating a full-size slice for the common
+	// "filter many, select one" path ending in a key.
+	if step.Kind == bytecode.StepKey || step.Kind == bytecode.StepIndex || step.Kind == bytecode.StepDynamic {
+		return len(nodes)
+	}
+	capacity := len(nodes)
+	estimated := 0
+	for _, n := range nodes {
+		count := 0
+		switch step.Kind {
+		case bytecode.StepWildcard:
+			switch n.Kind {
+			case syntax.Array:
+				count = len(n.Items)
+			case syntax.Object:
+				count = len(n.Entries)
+			}
+		case bytecode.StepFilter:
+			switch n.Kind {
+			case syntax.Array:
+				count = len(n.Items)
+			case syntax.Object:
+				count = len(n.Entries)
+			}
+			// Filters often select a small subset; do not reserve the whole
+			// container. A larger result grows normally.
+			if count > 32 {
+				count = 32
+			}
+		case bytecode.StepSlice:
+			if n.Kind == syntax.Array {
+				hi := len(n.Items)
+				if step.HasTo {
+					hi = pathBound(step.To, len(n.Items))
+				}
+				lo := 0
+				if step.HasFrom {
+					lo = pathBound(step.From, len(n.Items))
+				}
+				if hi > lo {
+					count = hi - lo
+				}
+			}
+		}
+		if count > estimated {
+			estimated = count
+		}
+	}
+	if estimated > capacity {
+		capacity = estimated
+	}
+	return capacity
+}
+
+func (v *scriptVM) filterValue(code int32, item *syntax.Node) (bool, error) {
+	result, err := v.evalCode(code, item)
+	if err != nil {
+		return false, err
+	}
+	if result.scalar {
+		return query.Truth(result.value), nil
+	}
+	for _, value := range result.nodes {
+		if query.Truth(value.Interface()) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func pathBound(i, n int) int {

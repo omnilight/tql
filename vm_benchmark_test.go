@@ -70,12 +70,25 @@ func BenchmarkVMScriptFilter(b *testing.B) {
 	benchmarkEngine(b, benchServices(), `services[] | select(.enabled) | .port`, true)
 }
 
+func benchLoopSource() string {
+	var b strings.Builder
+	b.WriteString(`{"a":[`)
+	for i := 0; i < 128; i++ {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprint(&b, i)
+	}
+	b.WriteString(`]}`)
+	return b.String()
+}
+
 func BenchmarkASTScriptForLoop(b *testing.B) {
-	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8]}`, `for $x in a[] { $x += 1 } a`, false)
+	benchmarkEngine(b, benchLoopSource(), `for $x in a[] { $x += 1 } a`, false)
 }
 
 func BenchmarkVMScriptForLoop(b *testing.B) {
-	benchmarkEngine(b, `{"a":[1,2,3,4,5,6,7,8]}`, `for $x in a[] { $x += 1 } a`, true)
+	benchmarkEngine(b, benchLoopSource(), `for $x in a[] { $x += 1 } a`, true)
 }
 
 func BenchmarkASTScriptWalk(b *testing.B) {

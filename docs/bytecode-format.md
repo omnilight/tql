@@ -301,7 +301,7 @@ Directives:
 | `.argset AN [registers]` | Register list for calls, objects, arrays and tree functions |
 | `.targetset DN [CN ...]` | Code list for `DELETE` |
 | `.scope SN [slots]` | Lexical slot range |
-| `.loop LN KIND continue=N break=N scope=N varslot=N` | Loop descriptor; KIND is `for` or `while` |
+| `.loop LN KIND continue=N break=N scope=N varslot=N readonly=BOOL` | Loop descriptor; KIND is `for` or `while` |
 | `.code CN "name" REGS` | Start a code object; `C0` is main |
 | `.stmt N` | Statement index for following instructions |
 | `.end` | Optional end of a path/code/file |

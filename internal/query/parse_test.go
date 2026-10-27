@@ -139,3 +139,33 @@ func TestNumericComparisonOracle(t *testing.T) {
 		}
 	}
 }
+
+func TestIntegerFastPath(t *testing.T) {
+	tests := []struct {
+		op   string
+		a, b syntax.Number
+		want syntax.Number
+	}{
+		{"+", "2", "3", "5"},
+		{"-", "2", "3", "-1"},
+		{"*", "2", "3", "6"},
+		{"%", "-5", "2", "-1"},
+		{"+", "9223372036854775807", "1", "9223372036854775808"},
+		{"-", "9223372036854775807", "-1", "9223372036854775808"},
+		{"*", "-9223372036854775808", "-1", "9223372036854775808"},
+		{"+", "1.0", "2", "3"},
+		{"+", "1e3", "2", "1002"},
+	}
+	for _, tt := range tests {
+		got, err := Operation(tt.op, tt.a, tt.b)
+		if err != nil {
+			t.Fatalf("%s %s %s: %v", tt.a, tt.op, tt.b, err)
+		}
+		if got != tt.want {
+			t.Fatalf("%s %s %s = %v, want %v", tt.a, tt.op, tt.b, got, tt.want)
+		}
+	}
+	if !Equal(syntax.Number("9223372036854775807"), syntax.Number("9223372036854775807")) {
+		t.Fatal("large integer equality failed")
+	}
+}

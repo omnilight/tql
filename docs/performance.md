@@ -11,17 +11,17 @@ VM removes per-expression interface dispatch and resolves lexical variables to
 slots; parsing, format editing, reparsing and semantic verification are unchanged.
 
 On an Apple M3 Pro, macOS arm64, Go 1.27.1 (2026-10-27), with
-`go test -run '^$' -bench 'Benchmark(AST|VM)' -benchmem -benchtime=200ms -count=3 .`:
+`go test -run '^$' -bench 'Benchmark(AST|VM)' -benchmem -benchtime=500ms -count=5 .`:
 
-| Workload | AST | VM | Allocations |
-| --- | ---: | ---: | --- |
-| Compiled read, 1,000 services | ~140 µs | ~112 µs | 7,015 → 4,017 |
-| Filter and project, 1,000 services | ~90 µs | ~64 µs | 7,044 → 2,036 |
-| Read loop, 10 items | ~8.6 µs | ~6.8 µs | 459 → 400 |
-| Nested read loops, 10 × 10 | ~88 µs | ~65 µs | 4,465 → 3,912 |
-| `walk` update | ~20–25 µs | ~16.5 µs | 652 → 556 |
-| Mutation loop, 128 items | ~33 µs | ~30.5 µs | 1,049 → 992 |
-| One-shot edit, 1,000 services | ~1.31 ms | ~1.31 ms | ~42,300 |
+| Workload | AST | VM | Change | Allocations |
+| --- | ---: | ---: | ---: | ---: |
+| Compiled read, 1,000 services | ~171 µs | ~68 µs | ~60% faster | 7,015 → 5 |
+| Filter and project, 1,000 services | ~112 µs | ~63 µs | ~44% faster | 7,044 → 17 |
+| Read loop, 10 items | ~5.5 µs | ~1.3 µs | ~77% faster | 183 → 25 |
+| Nested read loops, 10 × 10 | ~57 µs | ~9.2 µs | ~84% faster | 1,689 → 144 |
+| `walk` update | ~16.5 µs | ~13.0 µs | ~21% faster | 456 → 305 |
+| Mutation loop, 128 items | ~1.99 ms | ~1.96 ms | neutral | 62,651 → 61,105 |
+| One-shot edit, 1,000 services | ~1.34 ms | ~1.34 ms | neutral | ~40,100 |
 
 Expression-heavy work improves; edit-dominated work is neutral because document
 parsing and verification dominate. `length(string)` also has a SIMD rune-count

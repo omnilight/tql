@@ -327,12 +327,13 @@ Statement and control ops:
 | Op | Semantics |
 | --- | --- |
 | `READ src` | Append `Interface()` of every node to `Result.Values` |
+| `READ_VALUE src` | Append a scalar read result directly, without building a node |
 | `CHECK_DECLARE name` | Fail if the current scope already declares `name`; does not activate it |
 | `DECLARE slot, src` | Activate `slot` from a scalar, materializing its tree |
 | `ASSIGN op, target, rhs` | Assignment or compound assignment, using a compiled target plan and a scalar RHS code |
 | `ASSIGN_CONST op, target, value` | Assignment with a literal RHS, avoiding a sub-code call per target |
 | `DELETE targets` | Evaluate target streams and delete their nodes |
-| `FOR_INIT iter, src` | Evaluate the loop stream once and build the reference queue |
+| `FOR_INIT iter, src` | Evaluate the loop stream once and build the reference queue; read-only bodies bind selected nodes without reference state |
 | `FOR_NEXT iter, done` | Leave the previous iteration scope, enter the next live iteration, or jump to `done` |
 | `FOR_CLOSE iter` | Restore current input, truncate references, leave the loop scope |
 | `LOOP_BREAK loop`, `LOOP_CONTINUE loop` | Unwind to the loop's saved scope, then jump; `FOR_CLOSE` truncates references |
@@ -518,6 +519,12 @@ rest of that iteration and disappears on the next one.
 A `TICK` is emitted before every `FOR_NEXT`, including iterations whose reference
 has died, because the current loop counts those too. Nested loops hold
 independent iterator slots.
+
+When the body contains no assignment or deletion, `FOR_INIT` binds the selected
+nodes directly and skips address/reference construction. This is safe because a
+read-only body cannot rebase or invalidate the selection; `path`/`key` still see
+live document nodes. The compiler marks such loops as read-only in the loop
+descriptor (persisted in the image and shown by disassembly).
 
 ### Assignments and deletion
 

@@ -57,6 +57,8 @@ const (
 	OpFilterStream
 	OpAssignConst
 	OpFail
+	OpAnyTruth
+	OpReadValue
 )
 
 var opNames = [...]string{
@@ -104,6 +106,8 @@ var opNames = [...]string{
 	OpFilterStream:  "FILTER_STREAM",
 	OpAssignConst:   "ASSIGN_CONST",
 	OpFail:          "FAIL",
+	OpAnyTruth:      "ANY_TRUTH",
+	OpReadValue:     "READ_VALUE",
 }
 
 func (o OpCode) String() string {
@@ -194,6 +198,7 @@ type Loop struct {
 	Break    int32
 	Scope    int32
 	VarSlot  int32
+	ReadOnly bool
 }
 
 type Code struct {

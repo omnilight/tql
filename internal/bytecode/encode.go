@@ -182,6 +182,7 @@ func Encode(p *Program) ([]byte, error) {
 			w.i32(loop.Break)
 			w.i32(loop.Scope)
 			w.i32(loop.VarSlot)
+			w.u8(boolByte(loop.ReadOnly))
 		}
 		return nil
 	}); err != nil {

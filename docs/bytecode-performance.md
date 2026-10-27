@@ -124,7 +124,7 @@ The initial gate is deliberately explicit so it cannot be moved after the fact:
 | Correctness | Full parity on the differential corpus and golden corpus |
 | Expression-heavy speed | At least three of the five expression-heavy workloads at least 20% faster, statistically significant (`benchstat`, p < 0.05) |
 | Edit workloads | No workload more than 5% slower; ideally within noise |
-| Allocations | At least 20% fewer allocations on `ScriptForLoop` and `CompiledRead` |
+| Allocations | At least 20% fewer allocations on `CompiledRead`, `ScriptReadLoop` and `ScriptNestedReadLoops`; mutation loops must not regress materially |
 | One-shot `Eval` | No more than 10% slower after code generation; if it is, optimize or document why the trade-off is acceptable |
 | Program reuse | VM `Execute` with a reused program is not slower than AST reuse |
 | Persistence | `LoadProgram` is faster than parsing and compiling representative scripts, and image size is reported |
@@ -224,30 +224,37 @@ built-ins, not the bytecode dispatch loop, tree edits or exact arithmetic.
 
 ## Measured results
 
-First implementation measurements on an Apple M3 Pro, macOS arm64, Go 1.27.1,
+Optimized implementation measurements on an Apple M3 Pro, macOS arm64, Go 1.27.1,
 2026-10-27. The command was:
 
 ```sh
-go test -run '^$' -bench 'Benchmark(AST|VM)' -benchmem -benchtime=200ms -count=3 .
+go test -run '^$' -bench 'Benchmark(AST|VM)' -benchmem -benchtime=500ms -count=5 .
 ```
 
 Medians from that run:
 
 | Workload | AST | VM | Change | Allocations |
 | --- | ---: | ---: | ---: | --- |
-| `CompiledRead` | ~140 µs | ~112 µs | ~20% faster | 7,015 → 4,017 |
-| `ScriptFilter` | ~90 µs | ~64 µs | ~29% faster | 7,044 → 2,036 |
-| `ScriptReadLoop` | ~8.6 µs | ~6.8 µs | ~21% faster | 459 → 400 |
-| `ScriptNestedReadLoops` | ~88 µs | ~65 µs | ~26% faster | 4,465 → 3,912 |
-| `ScriptWalk` | ~20–25 µs | ~16.5 µs | ~20% faster | 652 → 556 |
-| `ScriptForLoop` | ~33 µs | ~30.5 µs | ~8% faster | 1,049 → 992 |
-| `OneShotEdit` | ~1.31 ms | ~1.31 ms | neutral | ~42,300 |
-| `CompileProgram` vs `LoadProgram` | ~3.2 µs | ~2.3 µs | load faster | 99 → 39 |
+| `CompiledRead` | ~171 µs | ~68 µs | ~60% faster | 7,015 → 5 |
+| `ScriptFilter` | ~112 µs | ~63 µs | ~44% faster | 7,044 → 17 |
+| `ScriptReadLoop` | ~5.5 µs | ~1.3 µs | ~77% faster | 183 → 25 |
+| `ScriptNestedReadLoops` | ~57 µs | ~9.2 µs | ~84% faster | 1,689 → 144 |
+| `ScriptWalk` | ~16.5 µs | ~13.0 µs | ~21% faster | 456 → 305 |
+| `ScriptForLoop` | ~1.99 ms | ~1.96 ms | neutral | 62,651 → 61,105 |
+| `OneShotEdit` | ~1.34 ms | ~1.34 ms | neutral | ~40,100 |
+
+`LoadProgram` measured about 2.3 µs for the benchmark program versus about 3.2 µs
+for `Compile` (99 → 39 allocations).
 
 The gate is met for the expression-heavy workloads. Mutation loops and one-shot
 edits are neutral because format editing, reparsing and semantic verification
 dominate; they are not regressions. These are measurements of one machine and
 one revision, not guarantees. Rerun the command before claiming a change.
+
+The largest wins came from compiling filter predicates to scalar truth values
+instead of rebuilding a boolean node per element, single-node path fast paths,
+integer arithmetic before `math/big`, read-only loop bindings without reference
+state, direct scalar reads, and a pooled VM/frame reset across executions.
 
 ## Implementation status
 

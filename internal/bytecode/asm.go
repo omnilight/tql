@@ -505,6 +505,8 @@ func parseLoop(args []string) (Loop, error) {
 				value = int32(n)
 			}
 			loop.VarSlot = value
+		case "readonly":
+			loop.ReadOnly = parts[1] == "true"
 		default:
 			return loop, fmt.Errorf("unknown loop field %q", parts[0])
 		}
@@ -586,6 +588,12 @@ func parseOp(line string, stmt int32) (Op, error) {
 		}
 	case "TRUTH":
 		op.Code = OpTruth
+		op.A, err = reg(1)
+		if err == nil {
+			op.B, err = reg(2)
+		}
+	case "ANY_TRUTH":
+		op.Code = OpAnyTruth
 		op.A, err = reg(1)
 		if err == nil {
 			op.B, err = reg(2)
@@ -697,6 +705,9 @@ func parseOp(line string, stmt int32) (Op, error) {
 		op.Code = OpTick
 	case "READ":
 		op.Code = OpRead
+		op.A, err = reg(1)
+	case "READ_VALUE":
+		op.Code = OpReadValue
 		op.A, err = reg(1)
 	case "CHECK_DECLARE":
 		op.Code = OpCheckDeclare

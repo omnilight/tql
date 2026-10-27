@@ -271,6 +271,7 @@ func (c *compiler) compileFor(s query.Statement) error {
 	loopScope := c.newScope()
 	c.scope().names[s.Name] = c.addSlot(s.Name)
 	loop := c.newLoop(LoopFor, loopScope, c.scope().names[s.Name])
+	c.prog.Loops[loop].ReadOnly = !statementsMutate(s.Body)
 	c.emit(Op{Code: OpForInit, A: loop, B: source})
 	c.emit(Op{Code: OpLoopEnter, A: loop})
 	next := int32(len(c.code.Ops))
@@ -293,12 +294,30 @@ func (c *compiler) compileFor(s query.Statement) error {
 
 func (c *compiler) compileRead(s query.Statement) error {
 	src := c.alloc()
-	if err := c.compileStream(s.Target, src); err != nil {
-		return err
+	if scalarExpression(s.Target) {
+		if err := c.compileScalar(s.Target, src); err != nil {
+			return err
+		}
+		c.emit(Op{Code: OpReadValue, A: src})
+	} else {
+		if err := c.compileStream(s.Target, src); err != nil {
+			return err
+		}
+		c.emit(Op{Code: OpRead, A: src})
 	}
-	c.emit(Op{Code: OpRead, A: src})
 	c.release(src)
 	return nil
+}
+
+func scalarExpression(e query.Expr) bool {
+	switch x := e.(type) {
+	case query.Literal, query.Unary:
+		return true
+	case query.Binary:
+		return x.Op != "|"
+	default:
+		return false
+	}
 }
 
 func (c *compiler) compileDelete(s query.Statement) error {
@@ -368,7 +387,7 @@ func (c *compiler) path(steps []query.Step) int32 {
 			}
 		case "filter":
 			item.Kind = StepFilter
-			item.Code = c.subStream(step.Predicate, "filter")
+			item.Code = c.subTruth(step.Predicate, "filter")
 		case "dynamic":
 			item.Kind = StepDynamic
 			item.Code = c.subStream(step.Predicate, "selector")
@@ -386,6 +405,43 @@ func (c *compiler) subStream(e query.Expr, name string) int32 {
 
 func (c *compiler) subScalar(e query.Expr, name string) int32 {
 	return c.sub(e, true, name)
+}
+
+func (c *compiler) subTruth(e query.Expr, name string) int32 {
+	code := &Code{Name: name}
+	child := &compiler{prog: c.prog, code: code, scopes: c.scopes, stmt: c.stmt}
+	child.reserve(0)
+	if err := child.compileTruth(e, 0); err != nil {
+		c.err = err
+		return -1
+	}
+	child.emit(Op{Code: OpHalt})
+	code.Registers = child.code.Registers
+	c.prog.Codes = append(c.prog.Codes, code)
+	return int32(len(c.prog.Codes) - 1)
+}
+
+func (c *compiler) compileTruth(e query.Expr, dst int32) error {
+	switch e.(type) {
+	case query.Unary, query.Binary:
+		if binary, ok := e.(query.Binary); ok && binary.Op == "|" {
+			break
+		}
+		tmp := c.alloc()
+		if err := c.compileScalar(e, tmp); err != nil {
+			return err
+		}
+		c.emit(Op{Code: OpTruth, A: dst, B: tmp})
+		c.release(tmp)
+		return nil
+	}
+	tmp := c.alloc()
+	if err := c.compileStream(e, tmp); err != nil {
+		return err
+	}
+	c.emit(Op{Code: OpAnyTruth, A: dst, B: tmp})
+	c.release(tmp)
+	return nil
 }
 
 func (c *compiler) sub(e query.Expr, scalar bool, name string) int32 {
@@ -757,4 +813,19 @@ func callArityError(call query.Call) error {
 		return fmt.Errorf("unknown function %q", call.Name)
 	}
 	return nil
+}
+
+func statementsMutate(statements []query.Statement) bool {
+	for _, statement := range statements {
+		switch statement.Op {
+		case "if", "for", "while":
+			if statementsMutate(statement.Body) || statementsMutate(statement.Else) {
+				return true
+			}
+		case "read", "let", "break", "continue":
+		default:
+			return true
+		}
+	}
+	return false
 }

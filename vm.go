@@ -2,6 +2,7 @@ package tql
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/vasileknik76/tql/internal/bytecode"
 	"github.com/vasileknik76/tql/internal/query"
@@ -10,6 +11,7 @@ import (
 
 type vmOperand struct {
 	nodes  []*syntax.Node
+	one    [1]*syntax.Node
 	value  any
 	scalar bool
 }
@@ -19,7 +21,17 @@ func (o *vmOperand) reset() {
 	o.value = nil
 	o.scalar = false
 }
+func (o *vmOperand) setNode(node *syntax.Node) {
+	o.one[0] = node
+	o.nodes = o.one[:]
+	o.value = nil
+	o.scalar = false
+}
 func (o *vmOperand) setStream(nodes []*syntax.Node) {
+	if len(nodes) == 1 {
+		o.setNode(nodes[0])
+		return
+	}
 	o.nodes = nodes
 	o.value = nil
 	o.scalar = false
@@ -44,6 +56,8 @@ type vmScope struct {
 
 type vmLoop struct {
 	queue           []*binding
+	values          []binding
+	refData         []nodeRef
 	next            int
 	refsStart       int
 	entered         bool
@@ -61,18 +75,46 @@ type scriptVM struct {
 	frames  []*vmFrame
 	depth   int
 	refs    []*nodeRef
+	pathOne [1]*syntax.Node
 	current *binding
 	steps   int
 	stmts   []int32
 	loops   []vmLoop
 }
 
+var vmPool = sync.Pool{New: func() any { return &scriptVM{} }}
+
 func newVM(doc *Document, inputs map[string]*binding, prog *bytecode.Program) *scriptVM {
-	v := &scriptVM{
-		doc:   doc,
-		prog:  prog,
-		slots: make([]*binding, len(prog.Slots)),
-		loops: make([]vmLoop, len(prog.Loops)),
+	v := vmPool.Get().(*scriptVM)
+	v.reset(doc, inputs, prog)
+	return v
+}
+
+func (v *scriptVM) reset(doc *Document, inputs map[string]*binding, prog *bytecode.Program) {
+	v.doc = doc
+	v.prog = prog
+	v.result = nil
+	v.current = nil
+	v.steps = 0
+	v.depth = 0
+	v.pathOne = [1]*syntax.Node{}
+	v.refs = v.refs[:0]
+	v.stmts = v.stmts[:0]
+	if cap(v.slots) < len(prog.Slots) {
+		v.slots = make([]*binding, len(prog.Slots))
+	} else {
+		v.slots = v.slots[:len(prog.Slots)]
+		for i := range v.slots {
+			v.slots[i] = nil
+		}
+	}
+	if cap(v.loops) < len(prog.Loops) {
+		v.loops = make([]vmLoop, len(prog.Loops))
+	} else {
+		v.loops = v.loops[:len(prog.Loops)]
+		for i := range v.loops {
+			v.loops[i] = vmLoop{}
+		}
 	}
 	for _, param := range prog.Params {
 		slot := indexOfSlot(prog.Slots, param.Name)
@@ -80,8 +122,49 @@ func newVM(doc *Document, inputs map[string]*binding, prog *bytecode.Program) *s
 			v.slots[slot] = inputs[param.Name]
 		}
 	}
-	v.scopes = append(v.scopes, vmScope{slots: prog.Scopes[0].Slots})
-	return v
+	v.scopes = append(v.scopes[:0], vmScope{slots: prog.Scopes[0].Slots})
+	for _, frame := range v.frames {
+		for i := range frame.regs {
+			frame.regs[i] = vmOperand{}
+		}
+		frame.code = nil
+		frame.ctx = nil
+	}
+}
+
+func releaseVM(v *scriptVM) {
+	v.doc = nil
+	v.prog = nil
+	v.result = nil
+	v.current = nil
+	for i := range v.slots {
+		v.slots[i] = nil
+	}
+	for i := range v.loops {
+		v.loops[i] = vmLoop{}
+	}
+	for i := range v.scopes {
+		v.scopes[i] = vmScope{}
+	}
+	v.scopes = v.scopes[:0]
+	for _, frame := range v.frames {
+		for i := range frame.regs {
+			frame.regs[i] = vmOperand{}
+		}
+		frame.code = nil
+		frame.ctx = nil
+	}
+	v.depth = 0
+	if cap(v.refs) > 0 {
+		full := v.refs[:cap(v.refs)]
+		for i := range full {
+			full[i] = nil
+		}
+	}
+	v.refs = v.refs[:0]
+	v.stmts = v.stmts[:0]
+	v.pathOne = [1]*syntax.Node{}
+	vmPool.Put(v)
 }
 
 func indexOfSlot(names []string, name string) int32 {
@@ -169,13 +252,13 @@ func (v *scriptVM) runFrame(f *vmFrame) error {
 		switch op.Code {
 		case bytecode.OpConst:
 			c := v.prog.Consts[op.B]
-			v.reg(f, op.A).setStream([]*syntax.Node{query.Node(c.Value)})
+			v.reg(f, op.A).setNode(query.Node(c.Value))
 		case bytecode.OpConstValue:
 			v.reg(f, op.A).setScalar(v.prog.Consts[op.B].Value)
 		case bytecode.OpCtx:
-			v.reg(f, op.A).setStream([]*syntax.Node{v.currentNode(f)})
+			v.reg(f, op.A).setNode(v.currentNode(f))
 		case bytecode.OpRoot:
-			v.reg(f, op.A).setStream([]*syntax.Node{v.doc.root})
+			v.reg(f, op.A).setNode(v.doc.root)
 		case bytecode.OpVar:
 			b := v.slotBinding(op.B)
 			if b == nil {
@@ -185,7 +268,7 @@ func (v *scriptVM) runFrame(f *vmFrame) error {
 			if n == nil {
 				return fmt.Errorf("variable $%s has no value", v.slotName(op.B))
 			}
-			v.reg(f, op.A).setStream([]*syntax.Node{n})
+			v.reg(f, op.A).setNode(n)
 		case bytecode.OpMissingVar:
 			return fmt.Errorf("undefined variable $%s", v.prog.Consts[op.A].Text)
 		case bytecode.OpFail:
@@ -204,16 +287,25 @@ func (v *scriptVM) runFrame(f *vmFrame) error {
 			src := v.stream(f, op.B)
 			switch len(src) {
 			case 0:
-				v.reg(f, op.A).setStream([]*syntax.Node{query.Node(nil)})
+				v.reg(f, op.A).setNode(query.Node(nil))
 			case 1:
-				v.reg(f, op.A).setStream([]*syntax.Node{src[0]})
+				v.reg(f, op.A).setNode(src[0])
 			default:
 				return fmt.Errorf("expression produced %d values; expected one", len(src))
 			}
 		case bytecode.OpNode:
-			v.reg(f, op.A).setStream([]*syntax.Node{query.Node(v.scalar(f, op.B))})
+			v.reg(f, op.A).setNode(query.Node(v.scalar(f, op.B)))
 		case bytecode.OpTruth:
 			v.reg(f, op.A).setScalar(query.Truth(v.scalar(f, op.B)))
+		case bytecode.OpAnyTruth:
+			truth := false
+			for _, node := range v.stream(f, op.B) {
+				if query.Truth(node.Interface()) {
+					truth = true
+					break
+				}
+			}
+			v.reg(f, op.A).setScalar(truth)
 		case bytecode.OpSteps:
 			plan := v.prog.Paths[op.C]
 			nodes, err := v.applyPath(v.stream(f, op.B), &plan)
@@ -228,7 +320,7 @@ func (v *scriptVM) runFrame(f *vmFrame) error {
 			for i, reg := range args {
 				values[keys[i]] = v.scalar(f, reg)
 			}
-			v.reg(f, op.A).setStream([]*syntax.Node{query.Node(values)})
+			v.reg(f, op.A).setNode(query.Node(values))
 		case bytecode.OpArray:
 			args := v.prog.ArgSets[op.B]
 			values := make([]any, 0)
@@ -237,7 +329,7 @@ func (v *scriptVM) runFrame(f *vmFrame) error {
 					values = append(values, n.Interface())
 				}
 			}
-			v.reg(f, op.A).setStream([]*syntax.Node{query.Node(values)})
+			v.reg(f, op.A).setNode(query.Node(values))
 		case bytecode.OpUnary:
 			value, err := query.UnaryValue(v.prog.Consts[op.C].Text, v.scalar(f, op.B))
 			if err != nil {
@@ -275,7 +367,7 @@ func (v *scriptVM) runFrame(f *vmFrame) error {
 			}
 			v.reg(f, op.A).setStream(out)
 		case bytecode.OpFilterStream:
-			var out []*syntax.Node
+			out := make([]*syntax.Node, 0, len(v.stream(f, op.B)))
 			for _, n := range v.stream(f, op.B) {
 				predicate, err := v.evalCode(op.C, n)
 				if err != nil {
@@ -308,7 +400,7 @@ func (v *scriptVM) runFrame(f *vmFrame) error {
 				return fmt.Errorf("invalid bytecode: select predicate is not scalar")
 			}
 			if query.Truth(pred.value) {
-				v.reg(f, op.A).setStream([]*syntax.Node{v.currentNode(f)})
+				v.reg(f, op.A).setNode(v.currentNode(f))
 			} else {
 				v.reg(f, op.A).setStream(nil)
 			}
@@ -336,6 +428,8 @@ func (v *scriptVM) runFrame(f *vmFrame) error {
 			for _, n := range v.stream(f, op.A) {
 				v.result.Values = append(v.result.Values, n.Interface())
 			}
+		case bytecode.OpReadValue:
+			v.result.Values = append(v.result.Values, v.scalar(f, op.A))
 		case bytecode.OpCheckDeclare:
 			name := v.prog.Consts[op.A].Text
 			if v.scopeHasName(name) {
@@ -533,12 +627,6 @@ func (v *scriptVM) owner(n *syntax.Node) (*binding, error) {
 	return nil, fmt.Errorf("target must select a document node or variable")
 }
 
-func (v *scriptVM) newRef(owner *binding, a address) *nodeRef {
-	ref := &nodeRef{owner: owner, path: append(address{}, a...), alive: true}
-	v.refs = append(v.refs, ref)
-	return ref
-}
-
 func (v *scriptVM) rebase(owner *binding, op string, a address) {
 	if op == "insert" {
 		return
@@ -583,20 +671,36 @@ func (v *scriptVM) forInit(loopID, source int32, f *vmFrame) error {
 	}
 	state := &v.loops[loopID]
 	state.queue = state.queue[:0]
+	state.values = make([]binding, len(src.nodes))
+	state.refData = nil
 	state.next = 0
 	state.entered = false
 	state.refsStart = len(v.refs)
-	for _, n := range src.nodes {
+	if v.prog.Loops[loopID].ReadOnly {
+		for i, n := range src.nodes {
+			state.values[i].value = n
+			state.queue = append(state.queue, &state.values[i])
+		}
+		return nil
+	}
+	state.refData = make([]nodeRef, len(src.nodes))
+	for i, n := range src.nodes {
 		owner, err := v.owner(n)
 		if err != nil {
-			state.queue = append(state.queue, &binding{value: query.Node(n.Interface())})
-			continue
+			state.values[i].value = query.Node(n.Interface())
+		} else {
+			a, err := addr(v.root(owner), n)
+			if err != nil {
+				return err
+			}
+			ref := &state.refData[i]
+			ref.owner = owner
+			ref.path = a
+			ref.alive = true
+			state.values[i].ref = ref
+			v.refs = append(v.refs, ref)
 		}
-		a, err := addr(v.root(owner), n)
-		if err != nil {
-			return err
-		}
-		state.queue = append(state.queue, &binding{ref: v.newRef(owner, a)})
+		state.queue = append(state.queue, &state.values[i])
 	}
 	return nil
 }

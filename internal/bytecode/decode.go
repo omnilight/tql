@@ -436,6 +436,7 @@ func decodeLoops(body []byte) ([]Loop, error) {
 			Break:    r.i32(),
 			Scope:    r.i32(),
 			VarSlot:  r.i32(),
+			ReadOnly: r.u8() == 1,
 		}
 		out = append(out, loop)
 	}

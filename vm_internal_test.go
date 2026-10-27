@@ -101,6 +101,8 @@ func TestVMStatementParity(t *testing.T) {
 		`param $delta = 2; a[] += $delta; a`,
 		`let $o = {x: 1}; $o.x += 2; $o`,
 		`$a = 4; a`,
+		`for $x in a[] { key($x) }`,
+		`for $x in a[] { path($x) }`,
 	}
 	for _, program := range programs {
 		t.Run(program, func(t *testing.T) {

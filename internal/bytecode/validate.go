@@ -220,7 +220,7 @@ func validateOp(p *Program, ci, oi int, code *Code, op Op) error {
 			return err
 		}
 		return reg(op.B)
-	case OpTruth:
+	case OpTruth, OpAnyTruth:
 		if err := reg(op.A); err != nil {
 			return err
 		}
@@ -348,7 +348,7 @@ func validateOp(p *Program, ci, oi int, code *Code, op Op) error {
 		return argSet(op.C)
 	case OpTick:
 		return nil
-	case OpRead:
+	case OpRead, OpReadValue:
 		return reg(op.A)
 	case OpCheckDeclare:
 		return konst(op.A)

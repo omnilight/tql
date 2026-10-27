@@ -165,6 +165,7 @@ func (d *Document) executeVM(p *Program, wantBytes bool, options execOptions) (*
 	}
 	work := &Document{source: d.source, root: d.root, format: d.format}
 	machine := newVM(work, bindings, p.code)
+	defer releaseVM(machine)
 	work.state = machine
 	result := &Result{Values: []any{}}
 	if err := machine.run(result); err != nil {
