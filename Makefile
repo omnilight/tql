@@ -1,4 +1,4 @@
-.PHONY: build test race vet fmt fmt-check check lint workflow-lint vuln tools fuzz oracle yaml-suite release clean \
+.PHONY: build test race vet fmt fmt-check check lint workflow-lint vuln tools fuzz conformance yaml-suite release clean \
 	fuzz-json fuzz-toml fuzz-yaml fuzz-yaml-graph fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote
 
 VERSION ?= dev
@@ -72,12 +72,11 @@ fuzz-yaml-aliases:
 fuzz-quote:
 	go test ./syntax -run '^$$' -fuzz '^FuzzQuote$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
 
-oracle:
-	python3 formats/toml/testdata/oracle/compare.py
+conformance:
+	go test ./conformance -count=1
 
 yaml-suite:
-	@test -n "$(YAML_TEST_SUITE)" || { echo "Set YAML_TEST_SUITE to an extracted yaml-test-suite data export."; exit 1; }
-	python3 formats/yaml/testdata/suite/compare.py --suite "$(YAML_TEST_SUITE)"
+	go test ./conformance -run '^TestYAMLTestSuite$$' -count=1
 
 release:
 	go run ./scripts/release -version $(VERSION) -output dist

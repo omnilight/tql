@@ -2,8 +2,9 @@
 
 TQL provides handwritten parsers and source-preserving edit backends for JSON, TOML,
 and YAML. Documents do not pass through an unmarshal/marshal round trip. The support
-below describes the implemented scope; it is not a claim of certification against
-complete external conformance suites.
+below describes the implemented scope. The pinned upstream TOML, YAML, and JSON
+corpora run in ordinary Go tests and CI; see [parser conformance](../conformance/README.md)
+for exact versions, checks, and intentional policy differences.
 
 ## JSON
 
@@ -50,8 +51,7 @@ from nearby entries. Literal quotes are used only when the new text is legal in
 that form. Object values use inline tables unless appended as an array-of-tables
 item. Existing comments and scalar spellings remain untouched.
 
-See the [TOML backend](../formats/toml/README.md) for edit behavior and the optional
-independent differential test.
+See the [TOML backend](../formats/toml/README.md) for edit behavior and corpus tests.
 
 ## YAML
 

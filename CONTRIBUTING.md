@@ -30,7 +30,9 @@ make workflow-lint
 These tools may require a newer Go version than the library's Go 1.23 minimum;
 CI runs them with Go 1.27. `make check` runs formatting verification, `go vet`,
 and the race-enabled test suite. `make fuzz FUZZTIME=10s` runs all bounded fuzz
-checks, and `make oracle` runs the TOML differential harness with Python 3.11+.
+checks. `make conformance` runs the pinned TOML, YAML, and JSON parser corpora;
+these also run in `go test ./...` and every CI test-matrix entry. No Python or
+network access is needed for the corpus checks.
 
 For parser and editor changes, add focused tests with exact input and output bytes
 as well as decoded values. Include comments, line endings, escaping, or malformed
@@ -42,11 +44,9 @@ go test ./formats/json -run '^$' -fuzz Fuzz -fuzztime 10s
 go test ./internal/query -run '^$' -fuzz FuzzParse -fuzztime 10s
 ```
 
-Keep discovered failures as regression tests. The optional
-[TOML differential harness](formats/toml/README.md#differential-testing) compares
-the parser with Python's `tomllib`. The optional [YAML suite harness](formats/yaml/README.md#conformance-checks)
-compares graph events and values with an external official data export:
-`make yaml-suite YAML_TEST_SUITE=/path/to/yaml-test-suite-data`.
+Keep discovered failures as regression tests. See [parser conformance](conformance/README.md)
+for upstream revisions, corpus policies, and update instructions.
+
 For performance work, use the workloads and
 measurement guidance in [performance](docs/performance.md).
 

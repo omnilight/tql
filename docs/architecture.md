@@ -155,8 +155,8 @@ do not mutate and read it concurrently.
 Unit and fuzz tests cover parsers, query evaluation, exact output bytes, Unicode,
 line endings, no-op edits, structural operations, and rollback. JSON tests use
 `encoding/json` as an independent oracle; the production parser does not use it.
-The optional [TOML differential harness](../formats/toml/README.md#differential-testing)
-compares parsing with Python's `tomllib`.
+The [parser conformance tests](../conformance/README.md) run pinned upstream TOML,
+YAML, and JSON corpora in ordinary Go tests and CI.
 
 [File integration tests](integration-tests.md) build and run the real CLI against
 isolated files, checking bytes, permissions, file identity, and failure behavior.

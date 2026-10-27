@@ -122,26 +122,25 @@ verification; `syntax.Apply` validates byte ranges, not YAML or alias semantics.
 
 ## Conformance checks
 
-The optional harness compares `ParseStream` with the
-[official YAML Test Suite](https://github.com/yaml/yaml-test-suite). Download a
-published data export, such as `data-2022-01-17`, separately, then run from the
-repository root:
+The Go tests compare `ParseStream` with the pinned
+[official YAML Test Suite](https://github.com/yaml/yaml-test-suite) release
+`data-2022-01-17`. All 402 cases, including numbered subtests, are stored in the
+repository and run in `go test ./...` and CI. Run just the YAML corpus with:
 
 ```sh
-make yaml-suite YAML_TEST_SUITE=/path/to/yaml-test-suite-data
+make yaml-suite
 ```
 
-The harness builds a temporary Go helper and reads every `in.yaml`, including
-numbered subtests. Valid inputs must match the expected event stream: document
-markers, collection styles, decoded text, tags, anchors, and aliases. Where
-`in.json` is available, decoded values and document counts are compared as well,
-without rounding numbers. Invalid inputs must return an error without a partial
-stream. Crashes, timeouts, missing references, and an empty corpus fail the run.
+Valid inputs must match the expected event stream: document markers, collection
+styles, decoded text, tags, anchors, and aliases. Where `in.json` is available,
+decoded values and document counts are compared without rounding numbers. Invalid
+inputs must return an error without a partial stream; source bytes must remain
+unchanged. Missing references or an incomplete corpus fail the run.
 
-Only Go and Python are required; the harness does not download the suite or add
-production dependencies. Use `--save-results` on
-`formats/yaml/testdata/suite/compare.py` to retain individual results. It tests
-syntax graphs, not arbitrary graph editing or every possible YAML schema.
+No Python, external checkout, or network access is required. See
+[parser conformance](../../conformance/README.md) for upstream revisions, licenses,
+and update instructions. The suite checks syntax graphs, rather than graph editing
+or every possible YAML schema.
 
 `make fuzz-yaml-graph` checks graph ownership, spans, mapping structure, and alias
 targets; `make fuzz` includes it alongside query-backend and edit fuzz checks.
