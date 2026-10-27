@@ -62,43 +62,11 @@ Apply a batch with `syntax.Apply`, then parse again before planning another batc
 The TQL engine performs this process and verifies the full resulting value tree;
 see [architecture](../../docs/architecture.md).
 
-## Differential testing
+## Conformance checks
 
-The optional deterministic harness compares this parser with Python's independent
-standard-library `tomllib`. It requires Go and Python 3.11 or newer, introduces no
-production dependency, and runs separately from `go test`:
-
-```sh
-python3 formats/toml/testdata/oracle/compare.py
-```
-
-Run the command from the repository root. With seed `541` and the default settings,
-it compares acceptance and normalized values for 55,798 documents: representative
-values and keys, 15,000 table/key declaration combinations, and 40,000 mutations.
-The count includes repeated documents. The harness builds its Go helper in a
-temporary directory and removes it afterward.
-
-Intentional numeric-policy differences are reported separately: Python accepts
-integers outside signed 64-bit range and converts float exponent overflow to
-infinity; this backend rejects both. The harness recognizes a policy difference
-only when the Go error and Python value confirm it.
-
-Python versions whose `tomllib` supports only TOML 1.0 reject some TOML 1.1 forms.
-For inputs accepted by TQL and rejected by Python, the harness additionally checks
-acceptance and decoded values with the independent `BurntSushi/toml` 1.6.0 decoder.
-It is pinned in a separate module under `testdata/oracle/reference`, so it adds no
-library dependency. The first such run may download this test-only dependency;
-subsequent offline runs require it in the Go module cache. These independently
-confirmed version differences are counted separately. Every other unexpected
-acceptance or semantic difference causes exit status 1.
-
-For a smaller run, optionally saving unexpected cases:
-
-```sh
-python3 formats/toml/testdata/oracle/compare.py --cases 1000 --combinations 500 \
-  --save-mismatches /tmp/tql-toml-mismatches.json
-```
-
-`--cases` controls mutations; representative cases are always included. This is a
-targeted differential check, not a complete conformance suite. Discovered failures
-should also become focused Go regression tests.
+All 681 TOML 1.1 parser cases from `toml-lang/toml-test` v2.2.0 are pinned in
+`conformance/testdata/toml` and run in `go test ./...` and CI. Valid inputs are
+compared with the upstream typed JSON values, including integer/float distinctions,
+negative zero, special floats, and local/offset temporal types. Invalid inputs must
+return an error without a partial tree. No downloads or Python are needed.
+See [parser conformance](../../conformance/README.md) for details.

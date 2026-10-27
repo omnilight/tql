@@ -185,6 +185,13 @@ Each format has a source-aware parser written in Go. Unsupported syntax or an
 edit that the format cannot represent returns an error. See
 [format compatibility](docs/formats.md).
 
+The parsers pass 1,401 upstream test cases in CI: 681 from
+[toml-test](https://github.com/toml-lang/toml-test), 402 from the official
+[YAML Test Suite](https://github.com/yaml/yaml-test-suite), and 318 from
+[JSONTestSuite](https://github.com/nst/JSONTestSuite). The pinned corpora run as part
+of `go test ./...`. JSON cases follow TQL's stricter duplicate-key policy; see
+[parser conformance](conformance/README.md) for versions and exact expectations.
+
 ## Documentation
 
 - [CLI usage and file handling](docs/cli.md)
@@ -195,6 +202,7 @@ edit that the format cannot represent returns an error. See
 - [Architecture and source preservation](docs/architecture.md)
 - [Performance](docs/performance.md)
 - [File integration tests](docs/integration-tests.md)
+- [Parser conformance and upstream test suites](conformance/README.md)
 - [Runnable examples](examples/README.md)
 - [Practical configuration recipes](examples/recipes/README.md)
 
