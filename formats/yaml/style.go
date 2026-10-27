@@ -1,6 +1,7 @@
 package yaml
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -233,11 +234,11 @@ func (s insertionStyle) withTemplate(src []byte, t *syntax.Node) insertionStyle 
 	if t == nil {
 		return s
 	}
-	for i := len(t.Entries) - 1; i >= 0; i-- {
+	for i, v := range slices.Backward(t.Entries) {
 		if i == len(t.Entries)-1 {
-			s.key = keyStyle(src, t.Entries[i])
+			s.key = keyStyle(src, v)
 		}
-		if c := entryColon(src, t.Entries[i]); c != "" {
+		if c := entryColon(src, v); c != "" {
 			s.colon = c
 			break
 		}
@@ -364,9 +365,9 @@ func (s insertionStyle) render(src []byte, value any, t *syntax.Node, indent int
 	if block {
 		return strings.Join(parts, s.nl+pad), true, nil
 	}
-	open, close := "[", "]"
+	open, closing := "[", "]"
 	if kind == syntax.Object {
-		open, close = "{", "}"
+		open, closing = "{", "}"
 	}
 	// New nested flow values use the template's horizontal padding/separators.
 	// Multiline templates receive indentation relative to the new location.
@@ -395,7 +396,7 @@ func (s insertionStyle) render(src []byte, value any, t *syntax.Node, indent int
 	if strings.ContainsAny(sep, "\r\n") && left == "" {
 		sep = ", "
 	}
-	return open + left + strings.Join(parts, sep) + right + close, false, nil
+	return open + left + strings.Join(parts, sep) + right + closing, false, nil
 }
 func sequenceGap(src []byte, n *syntax.Node) string {
 	for i := 0; i < childCount(n); i++ {
@@ -441,37 +442,35 @@ func insertFlow(src []byte, parent *syntax.Node, key string, value any, s insert
 		text = keyText + separatorFor(keyText, s.colon, true) + text
 	}
 	spans := flowSpans(parent)
-	close := parent.End - 1
+	closing := parent.End - 1
 	if len(spans) == 0 {
-		gap := string(src[parent.Start+1 : close])
+		gap := string(src[parent.Start+1 : closing])
 		if strings.Contains(gap, "#") {
-			pos := close
+			pos := closing
 			for pos > parent.Start+1 && src[pos-1] != '\n' && src[pos-1] != '\r' {
 				pos--
 			}
 			indent := sourceIndent(src, parent.Start) + strings.Repeat(" ", s.step)
 			return []syntax.Edit{{Start: pos, End: pos, Text: []byte(indent + text + s.nl)}}, nil
 		}
-		prefix := ""
-		if horizontal(gap) {
-			prefix = gap
-		} else {
+		prefix := gap
+		if !horizontal(gap) {
 			prefix = s.nl + sourceIndent(src, parent.Start) + strings.Repeat(" ", s.step)
 		}
 		return []syntax.Edit{{Start: parent.Start + 1, End: parent.Start + 1, Text: []byte(prefix + text)}}, nil
 	}
 	last := spans[len(spans)-1]
-	c := comma(src, last[1], close)
-	tail := string(src[last[1]:close])
+	c := comma(src, last[1], closing)
+	tail := string(src[last[1]:closing])
 	if strings.Contains(tail, "#") {
 		// Leave comments on their original lines. Add a separator at the old value,
 		// and append the new value on its own line before the closing delimiter.
-		pos := close
+		pos := closing
 		for pos > last[1] && src[pos-1] != '\n' && src[pos-1] != '\r' {
 			pos--
 		}
 		if pos <= last[1] {
-			pos = close
+			pos = closing
 		}
 		indent := sourceIndent(src, last[0])
 		if !strings.ContainsAny(string(src[parent.Start+1:last[0]]), "\r\n") {

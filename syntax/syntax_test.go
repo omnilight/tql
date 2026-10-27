@@ -49,11 +49,11 @@ func TestApplyStableInsertionOrderAndOwnership(t *testing.T) {
 	if string(source) != "abc" {
 		t.Fatal("output aliases source")
 	}
-	copy, err := Apply(source, nil)
+	cloned, err := Apply(source, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	copy[0] = 'A'
+	cloned[0] = 'A'
 	if string(source) != "abc" {
 		t.Fatal("no-op output aliases source")
 	}
@@ -67,12 +67,12 @@ func TestLinkedLookups(t *testing.T) {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			object := &Node{Kind: Object}
 			array := &Node{Kind: Array}
-			for i := 0; i < size; i++ {
+			for i := range size {
 				object.Entries = append(object.Entries, &Entry{Key: fmt.Sprint(i), Value: &Node{Kind: Null}})
 				array.Items = append(array.Items, &Node{Kind: Null})
 			}
 			check := func() {
-				for i := 0; i < size; i++ {
+				for i := range size {
 					if object.Get(fmt.Sprint(i)) != object.Entries[i].Value || object.Entry(object.Entries[i].Value) != object.Entries[i] {
 						t.Fatalf("incorrect object lookup at %d", i)
 					}
@@ -88,7 +88,7 @@ func TestLinkedLookups(t *testing.T) {
 			Link(object)
 			Link(array)
 			check()
-			for i := 0; i < size; i++ {
+			for i := range size {
 				if object.Entries[i].Value.Parent != object || array.Items[i].Parent != array {
 					t.Fatal("parent pointer was not linked")
 				}
@@ -105,7 +105,7 @@ func TestLinkRebuildsIndexesAndPreservesFirstMatch(t *testing.T) {
 	first, second := &Node{}, &Node{}
 	object := &Node{Kind: Object}
 	array := &Node{Kind: Array}
-	for i := 0; i < indexThreshold; i++ {
+	for i := range indexThreshold {
 		object.Entries = append(object.Entries, &Entry{Key: fmt.Sprint(i), Value: &Node{}})
 		array.Items = append(array.Items, &Node{})
 	}
@@ -136,16 +136,16 @@ func TestLinkRebuildsIndexesAndPreservesFirstMatch(t *testing.T) {
 
 func TestLinkedLookupConcurrentReads(t *testing.T) {
 	object := &Node{Kind: Object}
-	for i := 0; i < 128; i++ {
+	for i := range 128 {
 		object.Entries = append(object.Entries, &Entry{Key: fmt.Sprint(i), Value: &Node{}})
 	}
 	Link(object)
 	var readers sync.WaitGroup
-	for worker := 0; worker < 8; worker++ {
+	for range 8 {
 		readers.Add(1)
 		go func() {
 			defer readers.Done()
-			for i := 0; i < 128; i++ {
+			for i := range 128 {
 				if object.Get(fmt.Sprint(i)) != object.Entries[i].Value || object.Entry(object.Entries[i].Value) != object.Entries[i] {
 					t.Error("concurrent lookup failed")
 					return
@@ -158,7 +158,7 @@ func TestLinkedLookupConcurrentReads(t *testing.T) {
 
 func BenchmarkWideNodeLookup(b *testing.B) {
 	root := &Node{Kind: Object}
-	for i := 0; i < 4096; i++ {
+	for i := range 4096 {
 		root.Entries = append(root.Entries, &Entry{Key: fmt.Sprintf("key%d", i), Value: &Node{Kind: NumberKind, Value: Number("1")}})
 	}
 	Link(root)

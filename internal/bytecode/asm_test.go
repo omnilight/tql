@@ -45,11 +45,11 @@ func TestAssembleValueKinds(t *testing.T) {
 	}
 }
 
-func mustEncode(t testing.TB, p *Program) []byte {
-	t.Helper()
+func mustEncode(tb testing.TB, p *Program) []byte {
+	tb.Helper()
 	b, err := Encode(p)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return b
 }

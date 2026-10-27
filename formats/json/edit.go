@@ -29,7 +29,7 @@ func encodedTree(value any) ([]byte, *syntax.Node, error) {
 }
 
 // Replace plans replacement of a selected value.
-func (Format) Replace(source []byte, root, target *syntax.Node, value any) ([]syntax.Edit, error) {
+func (Format) Replace(source []byte, _ *syntax.Node, target *syntax.Node, value any) ([]syntax.Edit, error) {
 	if target == nil || target.Start < 0 || target.End > len(source) || target.End < target.Start {
 		return nil, fmt.Errorf("json: invalid replacement target")
 	}
@@ -57,7 +57,7 @@ func children(n *syntax.Node) []span {
 }
 
 // Delete plans removal of a node and its required syntax.
-func (Format) Delete(source []byte, root, target *syntax.Node) ([]syntax.Edit, error) {
+func (Format) Delete(source []byte, _ *syntax.Node, target *syntax.Node) ([]syntax.Edit, error) {
 	if target == nil || target.Parent == nil {
 		return nil, fmt.Errorf("json: cannot delete document root")
 	}
@@ -91,7 +91,7 @@ func (Format) Delete(source []byte, root, target *syntax.Node) ([]syntax.Edit, e
 }
 
 // Insert plans a missing object member or an array append.
-func (Format) Insert(source []byte, root, parent *syntax.Node, key string, value any) ([]syntax.Edit, error) {
+func (Format) Insert(source []byte, _ *syntax.Node, parent *syntax.Node, key string, value any) ([]syntax.Edit, error) {
 	if parent == nil || parent.Start < 0 || parent.End > len(source) || parent.End <= parent.Start {
 		return nil, fmt.Errorf("json: invalid insertion target")
 	}

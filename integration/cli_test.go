@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -155,8 +156,7 @@ func expectPorts(source, format, first, second string) string {
 	replacements := []string{first, second}
 	// Replace the later value first: walk's 80 -> 81 must not become the
 	// subsequent replacement's original 81 target.
-	for index := len(replacements) - 1; index >= 0; index-- {
-		replacement := replacements[index]
+	for index, replacement := range slices.Backward(replacements) {
 		old := fmt.Sprint(80 + index)
 		switch format {
 		case "json":

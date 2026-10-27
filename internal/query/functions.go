@@ -3,6 +3,7 @@ package query
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -223,11 +224,11 @@ func ApplyTreeFunction(name string, ctx, root *syntax.Node, arg []*syntax.Node, 
 					continue
 				}
 				stack = append(stack, frame{n: top.n, visited: true})
-				for i := len(top.n.Items) - 1; i >= 0; i-- {
-					stack = append(stack, frame{n: top.n.Items[i]})
+				for _, v := range slices.Backward(top.n.Items) {
+					stack = append(stack, frame{n: v})
 				}
-				for i := len(top.n.Entries) - 1; i >= 0; i-- {
-					stack = append(stack, frame{n: top.n.Entries[i].Value})
+				for _, v := range slices.Backward(top.n.Entries) {
+					stack = append(stack, frame{n: v.Value})
 				}
 			}
 			continue
@@ -283,8 +284,8 @@ func UnaryValue(op string, v any) (any, error) {
 		return nil, fmt.Errorf("cannot calculate with non-finite number %q", n)
 	}
 	if op == "-" {
-		if strings.HasPrefix(string(n), "-") {
-			n = syntax.Number(strings.TrimPrefix(string(n), "-"))
+		if after, found := strings.CutPrefix(string(n), "-"); found {
+			n = syntax.Number(after)
 		} else {
 			n = syntax.Number("-" + string(n))
 		}

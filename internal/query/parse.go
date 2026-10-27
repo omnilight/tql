@@ -275,7 +275,7 @@ func (p *parser) err(s string) error {
 
 var precedence = map[string]int{"|": 1, "??": 2, "or": 3, "and": 4, "==": 5, "!=": 5, "<": 6, "<=": 6, ">": 6, ">=": 6, "+": 7, "-": 7, "*": 8, "/": 8, "%": 8}
 
-func (p *parser) expr(min int) (Expr, error) {
+func (p *parser) expr(minPrec int) (Expr, error) {
 	p.depth++
 	defer func() { p.depth-- }()
 	if p.depth > 256 {
@@ -289,7 +289,7 @@ func (p *parser) expr(min int) (Expr, error) {
 	for {
 		op := p.peek().kind
 		prec := precedence[op]
-		if prec == 0 || prec < min {
+		if prec == 0 || prec < minPrec {
 			break
 		}
 		operators++

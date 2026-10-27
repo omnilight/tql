@@ -2,6 +2,7 @@ package toml
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -85,8 +86,7 @@ func localInsertionStyle(src []byte, n *syntax.Node) insertionStyle {
 		chain = append(chain, cur)
 	}
 	s := defaultInsertionStyle(src)
-	for i := len(chain) - 1; i >= 0; i-- {
-		cur := chain[i]
+	for _, cur := range slices.Backward(chain) {
 		s = containerWhitespace(src, cur, s)
 		var previous, last, quoted *syntax.Entry
 		visitSectionEntries(cur, func(e *syntax.Entry) {
@@ -111,8 +111,7 @@ func localInsertionStyle(src []byte, n *syntax.Node) insertionStyle {
 		}
 
 		if cur.Kind == syntax.Array && len(cur.Items) > 0 {
-			for j := len(cur.Items) - 1; j >= 0; j-- {
-				v := cur.Items[j]
+			for _, v := range slices.Backward(cur.Items) {
 				if v.Kind == syntax.String && v.Start >= 0 {
 					s.stringQuote = src[v.Start]
 					break
@@ -305,8 +304,8 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 			if len(entries) > 0 {
 				oldBase := sourceIndent(src, template.Start)
 				oldItem := sourceIndent(src, entries[len(entries)-1].Start)
-				if strings.HasPrefix(oldItem, oldBase) {
-					itemIndent = baseIndent + strings.TrimPrefix(oldItem, oldBase)
+				if after, ok := strings.CutPrefix(oldItem, oldBase); ok {
+					itemIndent = baseIndent + after
 				}
 			}
 		}
@@ -364,29 +363,29 @@ func insertArrayStyled(src []byte, parent *syntax.Node, value any, policy syntax
 	s.policy = policy
 	s = s.overrides()
 	template := collectionTemplate(src, parent, value)
-	open, close := parent.Start+1, parent.End-1
-	multiline := strings.Contains(string(src[open:close]), "\n")
+	open, closing := parent.Start+1, parent.End-1
+	multiline := strings.Contains(string(src[open:closing]), "\n")
 	if !multiline {
 		text, err := renderInsertion(src, value, template, s, 0)
 		if err != nil {
 			return nil, err
 		}
 		if len(parent.Items) == 0 {
-			gap := string(src[open:close])
+			gap := string(src[open:closing])
 			return []syntax.Edit{edit(open, open, gap+text)}, nil
 		}
 		last := parent.Items[len(parent.Items)-1]
-		if c := comma(src, last.End, close); c >= 0 {
+		if c := comma(src, last.End, closing); c >= 0 {
 			return []syntax.Edit{edit(c+1, c+1, s.separator+text+s.commaBefore+",")}, nil
 		}
 		return []syntax.Edit{edit(last.End, last.End, s.commaBefore+","+s.separator+text)}, nil
 	}
-	lineStart := close
+	lineStart := closing
 	for lineStart > open && src[lineStart-1] != '\n' {
 		lineStart--
 	}
-	closingLine := horizontal(string(src[lineStart:close]))
-	indent := string(src[lineStart:close]) + s.unit
+	closingLine := horizontal(string(src[lineStart:closing]))
+	indent := string(src[lineStart:closing]) + s.unit
 	if !closingLine {
 		indent = s.indent + s.unit
 	}
@@ -409,10 +408,10 @@ func insertArrayStyled(src []byte, parent *syntax.Node, value any, policy syntax
 		if closingLine {
 			return []syntax.Edit{edit(lineStart, lineStart, indent+text+s.nl)}, nil
 		}
-		return []syntax.Edit{edit(close, close, s.nl+indent+text+s.nl+s.indent)}, nil
+		return []syntax.Edit{edit(closing, closing, s.nl+indent+text+s.nl+s.indent)}, nil
 	}
 	last := parent.Items[len(parent.Items)-1]
-	c := comma(src, last.End, close)
+	c := comma(src, last.End, closing)
 	trailing := c >= 0
 	suffix := ""
 	if trailing {
@@ -432,27 +431,27 @@ func insertArrayStyled(src []byte, parent *syntax.Node, value any, policy syntax
 }
 
 func insertInlineAssignment(src []byte, owner *syntax.Node, assignment string, s insertionStyle) []syntax.Edit {
-	open, close := owner.Start+1, owner.End-1
+	open, closing := owner.Start+1, owner.End-1
 	entries := inlineEntries(owner)
-	if !strings.Contains(string(src[open:close]), "\n") {
+	if !strings.Contains(string(src[open:closing]), "\n") {
 		if len(entries) == 0 {
-			gap := string(src[open:close])
+			gap := string(src[open:closing])
 			return []syntax.Edit{edit(open, open, gap+assignment)}
 		}
 		last := entries[len(entries)-1]
-		if c := comma(src, last.End, close); c >= 0 {
+		if c := comma(src, last.End, closing); c >= 0 {
 			return []syntax.Edit{edit(c+1, c+1, s.separator+assignment+s.commaBefore+",")}
 		}
 		return []syntax.Edit{edit(last.End, last.End, s.commaBefore+","+s.separator+assignment)}
 	}
-	lineStart := close
+	lineStart := closing
 	for lineStart > open && src[lineStart-1] != '\n' {
 		lineStart--
 	}
-	closingLine := horizontal(string(src[lineStart:close]))
+	closingLine := horizontal(string(src[lineStart:closing]))
 	indent := s.indent + s.unit
 	if closingLine {
-		indent = string(src[lineStart:close]) + s.unit
+		indent = string(src[lineStart:closing]) + s.unit
 	}
 	if len(entries) > 0 {
 		last := entries[len(entries)-1]
@@ -468,10 +467,10 @@ func insertInlineAssignment(src []byte, owner *syntax.Node, assignment string, s
 		if closingLine {
 			return []syntax.Edit{edit(lineStart, lineStart, indent+assignment+s.nl)}
 		}
-		return []syntax.Edit{edit(close, close, s.nl+indent+assignment+s.nl+s.indent)}
+		return []syntax.Edit{edit(closing, closing, s.nl+indent+assignment+s.nl+s.indent)}
 	}
 	last := entries[len(entries)-1]
-	c := comma(src, last.End, close)
+	c := comma(src, last.End, closing)
 	suffix := ""
 	if c >= 0 {
 		suffix = s.commaBefore + ","

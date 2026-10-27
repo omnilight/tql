@@ -2,6 +2,7 @@ package bytecode
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/vasileknik76/tql/internal/query"
 )
@@ -63,7 +64,6 @@ func (c *compiler) emit(op Op) int32 {
 
 func (c *compiler) patchA(at int32, target int32) { c.code.Ops[at].A = target }
 func (c *compiler) patchB(at int32, target int32) { c.code.Ops[at].B = target }
-func (c *compiler) patchC(at int32, target int32) { c.code.Ops[at].C = target }
 
 func (c *compiler) jump(op OpCode, a int32) int32 { return c.emit(Op{Code: op, A: a}) }
 func (c *compiler) jumpIf(op OpCode, src int32) int32 {
@@ -91,8 +91,8 @@ func (c *compiler) addSlot(name string) int32 {
 }
 
 func (c *compiler) lookup(name string) (int32, bool) {
-	for i := len(c.scopes) - 1; i >= 0; i-- {
-		if slot, ok := c.scopes[i].names[name]; ok {
+	for _, v := range slices.Backward(c.scopes) {
+		if slot, ok := v.names[name]; ok {
 			return slot, true
 		}
 	}

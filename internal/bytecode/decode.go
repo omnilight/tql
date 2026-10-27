@@ -180,9 +180,9 @@ func (r *reader) str() string {
 	}
 	return s
 }
-func (r *reader) count(max int) int {
+func (r *reader) count(limit int) int {
 	n := r.u32()
-	if uint64(n) > uint64(max) || n > 1<<30 {
+	if uint64(n) > uint64(limit) || n > 1<<30 {
 		r.fail("invalid collection length %d", n)
 		return 0
 	}

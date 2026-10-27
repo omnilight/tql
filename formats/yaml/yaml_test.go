@@ -191,7 +191,7 @@ func TestDeleteCompactPreservesComment(t *testing.T) {
 }
 func TestDeleteFlow(t *testing.T) {
 	for _, src := range []string{"[1, 2, 3]", "[1, # a\n 2, 3]", "[1, 2, 3,]"} {
-		for idx := 0; idx < 3; idx++ {
+		for idx := range 3 {
 			n := parse(t, src)
 			out := remove(t, src, n.Items[idx])
 			got := parse(t, out).Items

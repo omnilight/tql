@@ -451,7 +451,7 @@ func comma(src []byte, start, end int) int {
 	}
 	return -1
 }
-func deleteDelimited(src []byte, container *syntax.Node, start, end, index, count int, prevEnd, nextStart int) ([]syntax.Edit, error) {
+func deleteDelimited(src []byte, _ *syntax.Node, start, end, index int, prevEnd, nextStart int) ([]syntax.Edit, error) {
 	edits := []syntax.Edit{edit(start, end, "")}
 	c := comma(src, end, nextStart)
 	if c >= 0 {
@@ -526,7 +526,7 @@ func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, er
 		if index+1 < len(parent.Items) {
 			next = parent.Items[index+1].Start
 		}
-		return deleteDelimited(src, parent, target.Start, target.End, index, len(parent.Items), prev, next)
+		return deleteDelimited(src, parent, target.Start, target.End, index, prev, next)
 	}
 	if inline := enclosingInline(parent); inline != nil {
 		entries := inlineEntries(inline)

@@ -24,7 +24,7 @@ func BenchmarkCompile(b *testing.B) {
 func benchmarkSource() []byte {
 	var source strings.Builder
 	source.WriteString("{\n  \"services\": [\n")
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		if i > 0 {
 			source.WriteString(",\n")
 		}
@@ -69,7 +69,7 @@ func BenchmarkEvalSurgicalEdit(b *testing.B) {
 func wideSource(size int) []byte {
 	var source strings.Builder
 	source.WriteByte('{')
-	for i := 0; i < size; i++ {
+	for i := range size {
 		if i != 0 {
 			source.WriteByte(',')
 		}
@@ -132,7 +132,7 @@ func BenchmarkWideObjectParse(b *testing.B) {
 func BenchmarkScriptForLoop(b *testing.B) {
 	var source strings.Builder
 	source.WriteString(`{"items":[`)
-	for i := 0; i < 128; i++ {
+	for i := range 128 {
 		if i > 0 {
 			source.WriteByte(',')
 		}
@@ -174,7 +174,7 @@ func BenchmarkStyledInsertion(b *testing.B) {
 				if format.name == "json" {
 					text.WriteString("{\n")
 				}
-				for i := 0; i < size; i++ {
+				for i := range size {
 					switch format.name {
 					case "json":
 						if i > 0 {

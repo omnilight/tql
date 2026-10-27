@@ -3,7 +3,7 @@ package query
 
 // Expr is an AST expression node. Concrete node types are inspected by the
 // bytecode compiler; parsing does not evaluate them.
-type Expr interface{}
+type Expr any
 
 type Variable struct{ Name string }
 type Literal struct{ Value any }

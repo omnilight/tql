@@ -86,9 +86,9 @@ func TestGraphAliasesPreserveIdentityAndCycles(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := stream.Documents[0].Root.Content
-	sequence, copy := content[1], content[3]
+	sequence, duplicate := content[1], content[3]
 	self := sequence.Content[0]
-	if sequence.Kind != yaml.SequenceNode || self.Kind != yaml.AliasNode || self.Alias != sequence || copy.Alias != sequence || self.Value != "root" {
+	if sequence.Kind != yaml.SequenceNode || self.Kind != yaml.AliasNode || self.Alias != sequence || duplicate.Alias != sequence || self.Value != "root" {
 		t.Fatal("alias identity or recursive edge was lost")
 	}
 	if doc, err := tql.Parse([]byte(source), "yaml"); err == nil || doc != nil || !strings.Contains(err.Error(), "recursive") {

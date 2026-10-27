@@ -234,11 +234,11 @@ func (d *Document) replaceBatch(updates []assignment) (bool, error) {
 	}
 	source, err := syntax.Apply(d.source, edits)
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // A rejected batch falls back to sequential edits.
 	}
 	root, err := d.format.Parse(source)
 	if err != nil || root == nil {
-		return false, nil
+		return false, nil //nolint:nilerr // Invalid batch output falls back to sequential edits.
 	}
 	syntax.Link(root)
 	if !query.Equal(expected, root.Interface()) {

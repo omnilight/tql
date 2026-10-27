@@ -37,7 +37,7 @@ func TestIndependentReplacementsParseOnce(t *testing.T) {
 	}
 	var want strings.Builder
 	want.WriteByte('{')
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		if i > 0 {
 			want.WriteByte(',')
 		}

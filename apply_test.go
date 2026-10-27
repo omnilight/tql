@@ -105,7 +105,7 @@ func TestApplyRejectsInvalidCommandsAtomically(t *testing.T) {
 	cyclicSlice := make([]any, 1)
 	cyclicSlice[0] = cyclicSlice
 	var deep any = true
-	for i := 0; i < 258; i++ {
+	for range 258 {
 		deep = []any{deep}
 	}
 	invalid := []edit.Operation{

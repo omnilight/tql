@@ -260,11 +260,6 @@ type writer struct {
 }
 
 func (w *writer) u8(v uint8) { w.buf = append(w.buf, v) }
-func (w *writer) u16(v uint16) {
-	var b [2]byte
-	binary.LittleEndian.PutUint16(b[:], v)
-	w.buf = append(w.buf, b[:]...)
-}
 func (w *writer) u32(v uint32) {
 	var b [4]byte
 	binary.LittleEndian.PutUint32(b[:], v)

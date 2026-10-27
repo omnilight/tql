@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"reflect"
@@ -113,12 +114,8 @@ func Operation(op string, a, b any) (any, error) {
 			y, ok := b.(map[string]any)
 			if ok {
 				out := map[string]any{}
-				for k, v := range x {
-					out[k] = v
-				}
-				for k, v := range y {
-					out[k] = v
-				}
+				maps.Copy(out, x)
+				maps.Copy(out, y)
 				return out, nil
 			}
 		}
@@ -329,11 +326,8 @@ func compareNumbers(a, b syntax.Number) (int, error) {
 	if cmp := ax.Cmp(ay); cmp != 0 {
 		return sign * cmp, nil
 	}
-	n := len(x.digits)
-	if len(y.digits) > n {
-		n = len(y.digits)
-	}
-	for i := 0; i < n; i++ {
+	n := max(len(y.digits), len(x.digits))
+	for i := range n {
 		ca, cb := byte('0'), byte('0')
 		if i < len(x.digits) {
 			ca = x.digits[i]

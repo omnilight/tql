@@ -23,7 +23,7 @@ func cloneDocument(d *Document) *Document {
 func benchServices() string {
 	var source strings.Builder
 	source.WriteString(`{"services":[`)
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		if i > 0 {
 			source.WriteByte(',')
 		}
@@ -34,6 +34,7 @@ func benchServices() string {
 }
 
 func benchmarkEngine(b *testing.B, source, program string) {
+	b.Helper()
 	base := benchDocument(b, source)
 	p, err := Compile(program)
 	if err != nil {
@@ -60,7 +61,7 @@ func BenchmarkVMScriptFilter(b *testing.B) {
 func benchLoopSource() string {
 	var b strings.Builder
 	b.WriteString(`{"a":[`)
-	for i := 0; i < 128; i++ {
+	for i := range 128 {
 		if i > 0 {
 			b.WriteByte(',')
 		}
@@ -161,7 +162,7 @@ func BenchmarkVMScriptNestedReadLoops(b *testing.B) {
 func openAPISource(schemas int) string {
 	var b strings.Builder
 	b.WriteString(`{"openapi":"3.0.3","info":{"title":"bench","version":"1"},"paths":{},"components":{"schemas":{`)
-	for i := 0; i < schemas; i++ {
+	for i := range schemas {
 		if i > 0 {
 			b.WriteByte(',')
 		}

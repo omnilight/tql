@@ -69,7 +69,7 @@ func TestParameterExample(t *testing.T) {
 		{"--params-file", "production.json"},
 		{"--arg", "service=api", "--arg", "image=api:v2", "--argjson", "replicas=3"},
 	} {
-		args := append(flags, "--query-file", "rollout.tql", "compose.yaml")
+		args := append(append([]string{}, flags...), "--query-file", "rollout.tql", "compose.yaml")
 		wantResult(t, run(t, dir, "", args...), 0, want)
 		wantResult(t, run(t, dir, "", append([]string{"-i"}, args...)...), 0, "")
 		wantResult(t, run(t, dir, "", append([]string{"--check"}, args...)...), 0, "")

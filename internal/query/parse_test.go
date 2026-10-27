@@ -37,7 +37,7 @@ func TestNumericComparisonOracle(t *testing.T) {
 		exponent := int(next()%61) - 30
 		return syntax.Number(fmt.Sprintf("%s%d.%05de%d", sign, whole, fraction, exponent))
 	}
-	for i := 0; i < 2000; i++ {
+	for range 2000 {
 		a, b := number(), number()
 		x, ok := new(big.Rat).SetString(string(a))
 		if !ok {

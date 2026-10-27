@@ -2,6 +2,7 @@ package tql
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/vasileknik76/tql/internal/bytecode"
@@ -199,8 +200,8 @@ func (v *scriptVM) wrap(err error) error {
 	if err == nil {
 		return nil
 	}
-	for i := len(v.stmts) - 1; i >= 0; i-- {
-		err = fmt.Errorf("statement %d: %w", v.stmts[i], err)
+	for _, stmt := range slices.Backward(v.stmts) {
+		err = fmt.Errorf("statement %d: %w", stmt, err)
 	}
 	return err
 }
@@ -630,8 +631,8 @@ func (v *scriptVM) owner(n *syntax.Node) (*binding, error) {
 	if top == v.doc.root {
 		return nil, nil
 	}
-	for i := len(v.scopes) - 1; i >= 0; i-- {
-		for _, slot := range v.scopes[i].slots {
+	for _, scope := range slices.Backward(v.scopes) {
+		for _, slot := range scope.slots {
 			b := v.slots[slot]
 			if b != nil && b.ref == nil && b.value == top {
 				return b, nil

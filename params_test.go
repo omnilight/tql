@@ -90,7 +90,7 @@ func TestParameterSnapshotsAndScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		r, err := doc.Exec(script, option)
 		if err != nil {
 			t.Fatal(err)
@@ -116,11 +116,11 @@ func TestParameterProgramReuse(t *testing.T) {
 	}
 	shared := tql.WithParams(map[string]any{"n": 42})
 	var wg sync.WaitGroup
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			for j := 0; j < 3; j++ {
+			for range 3 {
 				option := shared
 				want := `{"n":42}`
 				if i%2 == 0 {

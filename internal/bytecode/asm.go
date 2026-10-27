@@ -37,9 +37,7 @@ func Assemble(text string) (result *Program, err error) {
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	if err := state.finish(); err != nil {
-		return nil, err
-	}
+	state.finish()
 	p.Mutates = DeriveMutates(p)
 	if err := Validate(p); err != nil {
 		return nil, fmt.Errorf("invalid assembly: %w", err)
@@ -55,10 +53,9 @@ type assembler struct {
 	stmt        int32
 }
 
-func (a *assembler) finish() error {
+func (a *assembler) finish() {
 	a.currentPath = -1
 	a.currentCode = -1
-	return nil
 }
 
 func (a *assembler) parseLine(line string) error {

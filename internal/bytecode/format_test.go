@@ -8,15 +8,15 @@ import (
 	"github.com/vasileknik76/tql/internal/query"
 )
 
-func compiled(t testing.TB, source string) *Program {
-	t.Helper()
+func compiled(tb testing.TB, source string) *Program {
+	tb.Helper()
 	ast, err := query.Parse(source)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	p, err := Compile(ast)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return p
 }
