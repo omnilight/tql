@@ -24,8 +24,8 @@ the AST column is historical and no longer reproducible from the repository.
 
 Read-heavy rows are stable in direction but vary with machine noise. Edit-heavy
 rows are neutral, not a reliable fine-grained timing signal. `LoadProgram` is
-about 2.3 µs for the benchmark program versus about 3.2 µs for `Compile`
-(99 → 39 allocations).
+about 3.0 µs for the benchmark program versus about 4.6 µs for `Compile`
+(102 → 39 allocations); both include the validation pass.
 
 ## Workloads
 

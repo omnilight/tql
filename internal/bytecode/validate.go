@@ -27,7 +27,8 @@ const (
 )
 
 // Validate checks structural invariants of an in-memory program. It is run by
-// Decode and by Assemble; compiler-produced programs are covered by tests too.
+// Compile, Assemble, Encode and Decode, so compiled, assembled and loaded code
+// share one set of limits.
 func Validate(p *Program) error {
 	if p == nil {
 		return fmt.Errorf("nil program")

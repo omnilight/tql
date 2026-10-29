@@ -10,9 +10,10 @@
 - Add canonical disassembly and assembly through `Program.Disassemble`,
   `tql.Assemble`, `--disassemble`, `--assemble`, `--program` and
   `--emit-bytecode`.
-- Reject assembled and loaded bytecode whose control-flow cycles contain no
-  `TICK`, fix `select` sub-code validation, and reject path indexes and strings
-  that cannot be represented without changing behavior.
+- Reject bytecode whose control-flow cycles contain no `TICK`, fix `select`
+  sub-code validation, and reject path indexes and strings that cannot be
+  represented without changing behavior. `Compile`, `Assemble` and
+  `LoadProgram` now apply the same limits.
 - Preserve exact source bytes, errors, limits, scopes, live references and
   parameter behavior; expression-heavy workloads are faster and edit-dominated
   workloads remain neutral. See `docs/bytecode-performance.md`.
