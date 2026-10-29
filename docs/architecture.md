@@ -121,14 +121,18 @@ Addresses contain decoded keys and array indexes rather than pointers into an ol
 tree. Array targets are processed from higher indexes to lower indexes. Overlapping
 assignments are rejected; duplicate and nested deletions are combined.
 
-Independent replacements from one statement are planned against the same snapshot
-and applied as one batch. Structural operations and overlapping format edits use
+Independent replacements and deletions from one statement are planned against the
+same snapshot and applied as one batch. Structural dependencies and overlapping format edits use
 sequential batches, reparsing between them so later edits use current ranges. This
 matters for aliases: changing a child of a YAML alias may require replacing the
 entire alias token.
 
 After each batch, the engine compares the full parsed value tree with the expected
-result. This catches unrequested semantic changes, including effects on YAML
+result. Single mutations construct an expected tree by copying only the changed
+ancestor path and sharing immutable untouched children. Comparison walks the full
+result directly, without materializing another tree of maps and slices. Batches
+build a detached expected value once and compare it directly with the parsed tree.
+This catches unrequested semantic changes, including effects on YAML
 aliases. An execution works on local state and commits to `Document` only when the
 whole program succeeds. An error rolls back earlier statements and script output.
 Source bytes and linked trees are shared immutably between edits; public `Document.Bytes()`

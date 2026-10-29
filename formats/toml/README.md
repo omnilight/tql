@@ -36,10 +36,35 @@ are unsupported.
 ## Edit behavior
 
 Scalar, array, and inline-table replacements affect only the value span. Deletion
-removes the selected assignment or value and any necessary comma. Unrelated
+removes the selected assignment or value and any necessary comma. Syntax-only
+assignment, header, and collection-item lines are removed with their indentation
+and line ending. Inline deletions remove adjacent separator padding; multiline
+containers keep their layout. Removing a header section also removes its following
+empty separator lines, stopping at comments or surviving syntax. This is local to
+the removed section: unrelated blank lines are not normalized. Unrelated
 assignments, headers, whitespace, and comments remain unchanged. A removed key's
 trailing comment can remain as a standalone comment. Removing the final array-table
 item produces `key = []`.
+
+Bracket-array replacements reuse the selected array's layout, indentation,
+quoting, and comma style. With all styles set to `auto`, a replacement whose old
+items are an exact prefix of the new items appends the remaining values while
+preserving the existing bytes and internal comments. Other replacements may
+remove internal comments. Matching is conservative: equivalent numbers with
+different value representations can fall back to replacement. To explicitly
+retain surviving elements, edit them in place and append by index. For example,
+`let $index = length(commands); commands[$index] = "run b"` keeps existing array
+bytes and comments while adding an item with the local insertion style. This path
+is appropriate when the existing items are a prefix of the desired result.
+Arbitrary reordering or merging does not establish which value a comment belongs
+to; the backend does not guess or move comments onto different values.
+
+Keeping a deleted item's comment as source text does not merge its description
+with another item. A caller with an explicit comment-to-item mapping can collect
+those notes and place them at the intended destination using comment-only
+`syntax.Apply` edits on a source copy, then parse and edit that copy with TQL.
+Commit the result only after both stages succeed. TQL scripts do not expose
+comment reads or writes; semantic grouping alone cannot determine ownership.
 
 Insertions infer local assignment spacing, key and string quotes, array separators,
 indentation, and line endings. Nearby values of the same kind provide templates
@@ -47,9 +72,15 @@ for new collections. A literal string falls back to basic quotes when its conten
 cannot be represented safely. With no useful evidence, the backend uses its
 deterministic defaults. New object values use inline tables.
 New keys in a header table are inserted into that section, while keys in implicit
-dotted tables use dotted spelling. Array appends accept `"-"` or the current array
-length as the insertion key. Nested arrays of tables are appended in the section
-belonging to the selected parent item.
+dotted tables use dotted spelling. Inserted assignments precede the section's
+trailing blank lines and comment blocks, preserving the separator before the
+next header. New arrays can use body values in adjacent array-table items as
+layout examples. New scalar arrays under `auto` use a soft 100-column limit when
+their inferred inline representation is long; existing arrays, inline-table
+contents, and explicit `flow` keep their chosen layout. Items are never split,
+so one long scalar can exceed that limit. Array appends accept `"-"` or the current
+array length as the insertion key. Nested arrays of tables are appended in the
+section belonging to the selected parent item.
 
 Replacing or deleting a header table changes its assignments and headers while
 retaining comments. Replacing an individual array-table item requires an object

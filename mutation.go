@@ -118,11 +118,11 @@ func (d *Document) mutate(op string, n *syntax.Node, key string, v any) error {
 	if err != nil {
 		return err
 	}
-	expected := semanticChange(d.root.Interface(), op, a, key, v)
+	expected := expectedChange(d.root, op, a, key, v)
 	if err = d.apply(edits); err != nil {
 		return err
 	}
-	if !query.Equal(expected, d.root.Interface()) {
+	if !query.EqualNodes(expected, d.root) {
 		return fmt.Errorf("format edit changed an unexpected value; transaction aborted")
 	}
 	if d.state != nil {
@@ -241,12 +241,46 @@ func (d *Document) replaceBatch(updates []assignment) (bool, error) {
 		return false, nil //nolint:nilerr // Invalid batch output falls back to sequential edits.
 	}
 	syntax.Link(root)
-	if !query.Equal(expected, root.Interface()) {
+	if !query.EqualNodeValue(root, expected) {
 		return false, nil
 	}
 	d.source, d.root = source, root
 	for _, u := range updates {
 		d.state.rebase(nil, "replace", u.path)
+	}
+	return true, nil
+}
+
+// Deletions with disjoint format envelopes can also share a parse. If their
+// separators overlap, or removing the final item needs new container syntax,
+// fall back to the existing ordered operations without changing any state.
+func (d *Document) deleteBatch(paths []address) (bool, error) {
+	var edits []syntax.Edit
+	expected := d.root.Interface()
+	for _, path := range paths {
+		n := locate(d.root, path)
+		planned, err := d.format.Delete(d.source, d.root, n)
+		if err != nil {
+			return false, err
+		}
+		edits = append(edits, planned...)
+		expected = semanticChange(expected, "delete", path, "", nil)
+	}
+	source, err := syntax.Apply(d.source, edits)
+	if err != nil {
+		return false, nil //nolint:nilerr // A rejected batch falls back to sequential edits.
+	}
+	root, err := d.format.Parse(source)
+	if err != nil || root == nil {
+		return false, nil //nolint:nilerr // Invalid batch output falls back to sequential edits.
+	}
+	syntax.Link(root)
+	if !query.EqualNodeValue(root, expected) {
+		return false, nil
+	}
+	d.source, d.root = source, root
+	for _, path := range paths {
+		d.state.rebase(nil, "delete", path)
 	}
 	return true, nil
 }

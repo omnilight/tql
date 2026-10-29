@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -151,6 +152,48 @@ func allHeaders(n *syntax.Node, positions *[]int) {
 		allHeaders(v, positions)
 	}
 }
+
+// assignmentPosition keeps section separators and following comment blocks
+// after the inserted assignment. It never moves or rewrites that trailing text.
+func assignmentPosition(src []byte, root, owner *syntax.Node) int {
+	start := 0
+	if p, ok := owner.Meta["headerEnd"].(int); ok {
+		start = p
+	}
+	boundary := len(src)
+	var headers []int
+	allHeaders(root, &headers)
+	for _, p := range headers {
+		if p >= start && p < boundary {
+			boundary = bytes.LastIndexByte(src[:p], '\n') + 1
+		}
+	}
+	last := -1
+	visitSectionEntries(owner, func(e *syntax.Entry) {
+		if e.Start >= start && e.End <= boundary && e.End > last {
+			last = e.End
+		}
+	})
+	if last >= 0 {
+		for last < len(src) && src[last] != '\n' {
+			last++
+		}
+		if last < len(src) {
+			last++
+		}
+		return last
+	}
+	// With no assignments, retain the section's preamble before the new key,
+	// while leaving its final blank lines as separators.
+	for boundary > start {
+		line := bytes.LastIndexByte(src[:boundary-1], '\n') + 1
+		if line < start || len(bytes.Trim(src[line:boundary], " \t\r\n")) != 0 {
+			break
+		}
+		boundary = line
+	}
+	return boundary
+}
 func insertion(src []byte, root, parent *syntax.Node, key string, value any, policy syntax.Style) ([]syntax.Edit, error) {
 	owner, path, err := context(parent)
 	if err != nil {
@@ -173,33 +216,23 @@ func insertion(src []byte, root, parent *syntax.Node, key string, value any, pol
 			return insertStructure(src, parent, key, value, template, style, mode)
 		}
 	}
-	if template == nil && valueKind(value) == syntax.Array {
+	if items, ok := value.([]any); template == nil && ok && tableArray(items) {
 		exemplar := collectionTemplate(src, parent, map[string]any{})
 		if exemplar != nil {
 			template = &syntax.Node{Kind: syntax.Array, Start: -1, End: -1, Items: []*syntax.Node{exemplar}}
 		}
 	}
+	path = append(path, key)
+	style = style.forAssignment(styledPath(path, style))
 	text, err := renderInsertion(src, value, template, style, 0)
 	if err != nil {
 		return nil, err
 	}
-	path = append(path, key)
 	assignment := styledAssignment(styledPath(path, style), text, style)
 	if owner.Style == "inline" {
 		return insertInlineAssignment(src, owner, assignment, style), nil
 	}
-	start := 0
-	if x, ok := owner.Meta["headerEnd"].(int); ok {
-		start = x
-	}
-	pos := len(src)
-	var hs []int
-	allHeaders(root, &hs)
-	for _, h := range hs {
-		if h >= start && h < pos {
-			pos = h
-		}
-	}
+	pos := assignmentPosition(src, root, owner)
 	prefix := ""
 	if pos > 0 && src[pos-1] != '\n' {
 		prefix = style.nl
@@ -317,7 +350,7 @@ func renderDocument(m map[string]any) (string, error) {
 	}
 	return b.String(), nil
 }
-func ownedEdits(n *syntax.Node) []syntax.Edit {
+func ownedSyntax(n *syntax.Node) []syntax.Edit {
 	var edits []syntax.Edit
 	if s, ok := n.Meta["headerStart"].(int); ok {
 		edits = append(edits, edit(s, n.Meta["headerEnd"].(int), ""))
@@ -326,13 +359,106 @@ func ownedEdits(n *syntax.Node) []syntax.Edit {
 		if e.Start >= 0 {
 			edits = append(edits, edit(e.Start, e.End, ""))
 		} else {
-			edits = append(edits, ownedEdits(e.Value)...)
+			edits = append(edits, ownedSyntax(e.Value)...)
 		}
 	}
 	for _, v := range n.Items {
-		edits = append(edits, ownedEdits(v)...)
+		edits = append(edits, ownedSyntax(v)...)
 	}
 	return edits
+}
+
+// removeLine expands only when the selected syntax is the sole content of its
+// physical line(s). A trailing comment stays at its original position. Blank
+// lines and comments outside the selected span are never globally normalized.
+func removeLine(src []byte, start, end int) syntax.Edit {
+	ls := bytes.LastIndexByte(src[:start], '\n') + 1
+	if len(bytes.Trim(src[ls:start], " \t\r")) != 0 {
+		return edit(start, end, "")
+	}
+	le := end
+	for le < len(src) && (src[le] == ' ' || src[le] == '\t' || src[le] == '\r') {
+		le++
+	}
+	if le == len(src) {
+		return edit(ls, le, "")
+	}
+	if src[le] == '\n' {
+		return edit(ls, le+1, "")
+	}
+	return edit(start, end, "")
+}
+
+func ownedEdits(src []byte, n *syntax.Node) []syntax.Edit {
+	return removeOwnedLines(src, ownedSyntax(n), false)
+}
+
+// A removed section owns its following empty separator lines, up to the next
+// comment or syntax. Keep leading separators and all comment lines verbatim.
+func removeOwnedLines(src []byte, edits []syntax.Edit, separators bool) []syntax.Edit {
+	for i, e := range edits {
+		edits[i] = removeLine(src, e.Start, e.End)
+	}
+	sort.Slice(edits, func(i, j int) bool { return edits[i].Start < edits[j].Start })
+	var out []syntax.Edit
+	for _, e := range edits {
+		if len(out) > 0 {
+			last := &out[len(out)-1]
+			if e.Start >= last.End && len(bytes.TrimSpace(src[last.End:e.Start])) == 0 {
+				last.End = e.End
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	for i := range out {
+		if !separators {
+			continue
+		}
+		e := &out[i]
+		if e.End == 0 || src[e.End-1] != '\n' {
+			continue
+		}
+		pos := e.End
+		for pos < len(src) {
+			end := pos
+			for end < len(src) && (src[end] == ' ' || src[end] == '\t' || src[end] == '\r') {
+				end++
+			}
+			if end == len(src) {
+				e.End = end
+				break
+			}
+			if src[end] != '\n' {
+				break
+			}
+			pos = end + 1
+			e.End = pos
+		}
+	}
+	return out
+}
+
+// Merge syntax and its commas on the same physical line before expanding to
+// whole lines. A comma on a surviving line must never absorb the next newline:
+// doing so could attach a retained comment to the wrong value.
+func removeInlineSyntax(src []byte, edits []syntax.Edit) []syntax.Edit {
+	sort.Slice(edits, func(i, j int) bool { return edits[i].Start < edits[j].Start })
+	var out []syntax.Edit
+	for _, e := range edits {
+		if len(out) > 0 {
+			last := &out[len(out)-1]
+			if e.Start >= last.End && len(bytes.Trim(src[last.End:e.Start], " \t")) == 0 {
+				last.End = e.End
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	for i, e := range out {
+		out[i] = removeLine(src, e.Start, e.End)
+	}
+	return out
 }
 
 // Replace plans replacement of a selected value.
@@ -341,6 +467,26 @@ func (f Format) Replace(src []byte, root, target *syntax.Node, value any) ([]syn
 		return nil, fmt.Errorf("toml: invalid replacement target")
 	}
 	if target.Start >= 0 {
+		if items, ok := value.([]any); ok && target.Kind == syntax.Array {
+			// An unchanged prefix has a known correspondence. Append without
+			// replacing the existing bytes or guessing comment ownership.
+			if f.style.IsAuto() && len(items) > len(target.Items) && arrayPrefix(target, items) {
+				return appendArrayStyled(src, target, items[len(target.Items):], f.style)
+			}
+			style := localInsertionStyle(src, target)
+			style.policy = f.style
+			style.preserveArrayLayout = true
+			style.indent = lineIndent(src, target.Start)
+			if bytes.Contains(src[target.Start:target.End], []byte("\n")) {
+				style.nl = newlineStyle(src[target.Start:target.End])
+			}
+			style.column = sourceColumn(src, target.Start)
+			text, err := renderInsertion(src, value, target, style, 0)
+			if err != nil {
+				return nil, err
+			}
+			return []syntax.Edit{edit(target.Start, target.End, text)}, nil
+		}
 		s, err := render(value)
 		if err != nil {
 			return nil, err
@@ -356,7 +502,7 @@ func (f Format) Replace(src []byte, root, target *syntax.Node, value any) ([]syn
 		if err != nil {
 			return nil, err
 		}
-		edits := ownedEdits(target)
+		edits := ownedEdits(src, target)
 		return append([]syntax.Edit{edit(0, 0, s)}, edits...), nil
 	}
 	if target.Parent.Kind == syntax.Array {
@@ -381,14 +527,14 @@ func (f Format) Replace(src []byte, root, target *syntax.Node, value any) ([]syn
 		} else {
 			body = newlineStyle(src) + body
 		}
-		edits := ownedEdits(target)
+		edits := ownedSyntax(target)
 		kept := edits[:0]
 		for _, e := range edits {
 			if e.Start != start || e.End != end {
 				kept = append(kept, e)
 			}
 		}
-		return append([]syntax.Edit{edit(pos, pos, body)}, kept...), nil
+		return append([]syntax.Edit{edit(pos, pos, body)}, removeOwnedLines(src, kept, false)...), nil
 	}
 	if owner := enclosingInline(target.Parent); owner != nil {
 		_, path, err := context(target.Parent)
@@ -434,7 +580,16 @@ func (f Format) Replace(src []byte, root, target *syntax.Node, value any) ([]syn
 	if err != nil {
 		return nil, err
 	}
-	return append(ins, ownedEdits(target)...), nil
+	return append(ins, ownedEdits(src, target)...), nil
+}
+
+func arrayPrefix(target *syntax.Node, items []any) bool {
+	for i, child := range target.Items {
+		if !reflect.DeepEqual(child.Interface(), items[i]) {
+			return false
+		}
+	}
+	return true
 }
 func comma(src []byte, start, end int) int {
 	comment := false
@@ -451,19 +606,46 @@ func comma(src []byte, start, end int) int {
 	}
 	return -1
 }
-func deleteDelimited(src []byte, _ *syntax.Node, start, end, index int, prevEnd, nextStart int) ([]syntax.Edit, error) {
-	edits := []syntax.Edit{edit(start, end, "")}
+func deleteDelimited(src []byte, start, end, index int, prevEnd, nextStart int) ([]syntax.Edit, error) {
 	c := comma(src, end, nextStart)
 	if c >= 0 {
-		edits = append(edits, edit(c, c+1, ""))
+		// A comment between the value and comma must survive at its position.
+		if len(bytes.TrimSpace(src[end:c])) == 0 {
+			end = c + 1
+			line := removeLine(src, start, end)
+			if line.Start != start || line.End != end {
+				return []syntax.Edit{line}, nil
+			}
+			padding := end
+			for padding < nextStart && (src[padding] == ' ' || src[padding] == '\t') {
+				padding++
+			}
+			if padding == nextStart || src[padding] != '#' {
+				end = padding
+			}
+			return []syntax.Edit{edit(start, end, "")}, nil
+		}
+		return []syntax.Edit{removeLine(src, start, end), removeLine(src, c, c+1)}, nil
 	} else if index > 0 {
 		c = comma(src, prevEnd, start)
 		if c < 0 {
 			return nil, fmt.Errorf("missing separator")
 		}
-		edits = append(edits, edit(c, c+1, ""))
+		line := removeLine(src, start, end)
+		if line.Start != start || line.End != end {
+			return []syntax.Edit{removeLine(src, c, c+1), line}, nil
+		}
+		if len(bytes.Trim(src[c+1:start], " \t")) == 0 {
+			return []syntax.Edit{edit(c, end, "")}, nil
+		}
+		return []syntax.Edit{removeLine(src, c, c+1), line}, nil
 	}
-	return edits, nil
+	// When the whole inline contents disappear, retain one side's original
+	// padding rather than joining both sides into a doubled empty-container gap.
+	if start > prevEnd && nextStart > end && len(bytes.Trim(src[prevEnd:start], " \t")) == 0 && len(bytes.Trim(src[end:nextStart], " \t")) == 0 {
+		end = nextStart
+	}
+	return []syntax.Edit{removeLine(src, start, end)}, nil
 }
 func enclosingInline(n *syntax.Node) *syntax.Node {
 	for n != nil {
@@ -515,7 +697,7 @@ func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, er
 			if len(parent.Items) == 1 {
 				return f.Replace(src, root, parent, []any{})
 			}
-			return ownedEdits(target), nil
+			return removeOwnedLines(src, ownedSyntax(target), true), nil
 		}
 		index := parent.Index(target)
 		prev := parent.Start + 1
@@ -526,7 +708,7 @@ func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, er
 		if index+1 < len(parent.Items) {
 			next = parent.Items[index+1].Start
 		}
-		return deleteDelimited(src, parent, target.Start, target.End, index, prev, next)
+		return deleteDelimited(src, target.Start, target.End, index, prev, next)
 	}
 	if inline := enclosingInline(parent); inline != nil {
 		entries := inlineEntries(inline)
@@ -538,30 +720,49 @@ func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, er
 			}
 			first := i
 			for i < len(entries) && descendant(entries[i].Value, target) {
-				edits = append(edits, edit(entries[i].Start, entries[i].End, ""))
 				i++
 			}
 			last := i - 1
-			// Remove all separators internal to the selected run, and one boundary separator.
-			for j := first; j < last; j++ {
-				c := comma(src, entries[j].End, entries[j+1].Start)
-				if c >= 0 {
-					edits = append(edits, edit(c, c+1, ""))
+			// Comments between dotted assignments belong to the source gaps,
+			// not to the synthetic parent. Do not swallow them in a run span.
+			if first != last && bytes.Contains(src[entries[first].End:entries[last].Start], []byte("#")) {
+				var run []syntax.Edit
+				for j := first; j <= last; j++ {
+					run = append(run, edit(entries[j].Start, entries[j].End, ""))
+					if j < last {
+						if c := comma(src, entries[j].End, entries[j+1].Start); c >= 0 {
+							run = append(run, edit(c, c+1, ""))
+						}
+					}
 				}
+				c := comma(src, entries[last].End, inline.End-1)
+				if i < len(entries) {
+					c = comma(src, entries[last].End, entries[i].Start)
+				}
+				if c < 0 && first > 0 {
+					c = comma(src, entries[first-1].End, entries[first].Start)
+				}
+				if c >= 0 {
+					run = append(run, edit(c, c+1, ""))
+				}
+				edits = append(edits, removeInlineSyntax(src, run)...)
+				continue
+			}
+			// The run includes its internal separators. Remove one boundary
+			// separator and local padding using the same rules as arrays.
+			start, end := entries[first].Start, entries[last].End
+			prev, next := inline.Start+1, inline.End-1
+			if first > 0 {
+				prev = entries[first-1].End
 			}
 			if i < len(entries) {
-				c := comma(src, entries[last].End, entries[i].Start)
-				if c >= 0 {
-					edits = append(edits, edit(c, c+1, ""))
-				}
-			} else if c := comma(src, entries[last].End, inline.End-1); c >= 0 {
-				edits = append(edits, edit(c, c+1, ""))
-			} else if first > 0 {
-				c := comma(src, entries[first-1].End, entries[first].Start)
-				if c >= 0 {
-					edits = append(edits, edit(c, c+1, ""))
-				}
+				next = entries[i].Start
 			}
+			planned, err := deleteDelimited(src, start, end, first, prev, next)
+			if err != nil {
+				return nil, err
+			}
+			edits = append(edits, planned...)
 		}
 		return edits, nil
 	}
@@ -570,7 +771,7 @@ func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, er
 		return nil, err
 	}
 	if e.Start >= 0 {
-		return []syntax.Edit{edit(e.Start, e.End, "")}, nil
+		return []syntax.Edit{removeLine(src, e.Start, e.End)}, nil
 	}
-	return ownedEdits(target), nil
+	return removeOwnedLines(src, ownedSyntax(target), true), nil
 }

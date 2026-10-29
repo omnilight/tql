@@ -72,17 +72,39 @@ func collectionTemplate(src []byte, parent *syntax.Node, value any) *syntax.Node
 		return nil
 	}
 	kind := valueKind(value)
-	return syntax.NearbyTemplate(parent, kind, func(n *syntax.Node) bool {
+	accept := func(n *syntax.Node) bool {
+		if n == parent {
+			return false
+		}
 		if kind != syntax.Array {
 			return true
 		}
 		return scalarstyle.ObjectArrayNode(n) == tableArray(value.([]any))
-	}, func(n *syntax.Node) string {
+	}
+	signature := func(n *syntax.Node) string {
 		if kind == syntax.Object {
 			return objectMode(syntax.Style{}, n)
 		}
 		return scalarstyle.Signature(src, n)
-	})
+	}
+	for scope := parent; scope != nil; scope = scope.Parent {
+		// Adjacent array-table items form the same local scope for layout.
+		// Inspect their body values, rather than comparing scalar arrays with
+		// the synthetic array of tables that contains them.
+		view := &syntax.Node{Entries: scope.Entries, Items: scope.Items}
+		if scope.Style == "tables" {
+			view = &syntax.Node{Items: scope.Items}
+			for _, item := range scope.Items {
+				if item != parent {
+					view.Entries = append(view.Entries, sectionEntries(item)...)
+				}
+			}
+		}
+		if template := syntax.NearbyTemplate(view, kind, accept, signature); template != nil {
+			return template
+		}
+	}
+	return nil
 }
 func renderString(value, style, template string, q byte) string {
 	if style == "" || style == "auto" {
@@ -186,7 +208,7 @@ func renderSection(src []byte, m map[string]any, path []string, t *syntax.Node, 
 			}
 			continue
 		}
-		text, err := renderInsertion(src, v, ct, s, depth+1)
+		text, err := renderInsertion(src, v, ct, s.forAssignment(styledKey(k, s)), depth+1)
 		if err != nil {
 			return "", err
 		}
@@ -236,7 +258,7 @@ func renderDotted(src []byte, m map[string]any, path, ownerPath []string, t *syn
 			}
 			continue
 		}
-		text, err := renderInsertion(src, v, ct, s, depth+1)
+		text, err := renderInsertion(src, v, ct, s.forAssignment(styledPath(next, s)), depth+1)
 		if err != nil {
 			return "", "", err
 		}
@@ -277,19 +299,7 @@ func insertStructure(src []byte, parent *syntax.Node, key string, value any, t *
 			if err != nil {
 				return nil, err
 			}
-			// Dotted assignments belong before the next section header.
-			start := 0
-			if p, ok := owner.Meta["headerEnd"].(int); ok {
-				start = p
-			}
-			pos := len(src)
-			var hs []int
-			allHeaders(rootOf(parent), &hs)
-			for _, p := range hs {
-				if p >= start && p < pos {
-					pos = p
-				}
-			}
+			pos := assignmentPosition(src, rootOf(parent), owner)
 			prefix := ""
 			if pos > 0 && src[pos-1] != '\n' {
 				prefix = s.nl

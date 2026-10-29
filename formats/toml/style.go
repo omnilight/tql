@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	scalarstyle "github.com/vasileknik76/tql/internal/style"
 	"github.com/vasileknik76/tql/syntax"
@@ -17,14 +18,44 @@ type insertionStyle struct {
 	indent, unit, nl                                                   string
 	keyQuote, stringQuote                                              byte
 	equalsColumn                                                       int
+	column                                                             int
+	flow                                                               bool
+	preserveArrayLayout                                                bool
 	policy                                                             syntax.Style
 }
+
+const inferredArrayWidth = 100
 
 func defaultInsertionStyle(src []byte) insertionStyle {
 	return insertionStyle{before: " ", after: " ", separator: " ", objectPadding: " ", unit: "  ", nl: newlineStyle(src), equalsColumn: -1}
 }
 
 func horizontal(s string) bool { return strings.Trim(s, " \t") == "" }
+
+func sourceColumn(src []byte, pos int) int {
+	start := pos
+	for start > 0 && src[start-1] != '\n' {
+		start--
+	}
+	return utf8.RuneCount(src[start:pos])
+}
+
+func lineIndent(src []byte, pos int) string {
+	start := pos
+	for start > 0 && src[start-1] != '\n' {
+		start--
+	}
+	end := start
+	for end < pos && (src[end] == ' ' || src[end] == '\t') {
+		end++
+	}
+	return string(src[start:end])
+}
+
+func (s insertionStyle) forAssignment(key string) insertionStyle {
+	s.column = utf8.RuneCountInString(s.indent + key + s.before + "=" + s.after)
+	return s
+}
 
 func sourceIndent(src []byte, pos int) string {
 	start := pos
@@ -87,6 +118,9 @@ func localInsertionStyle(src []byte, n *syntax.Node) insertionStyle {
 	}
 	s := defaultInsertionStyle(src)
 	for _, cur := range slices.Backward(chain) {
+		if cur.Style == "inline" {
+			s.flow = true
+		}
 		s = containerWhitespace(src, cur, s)
 		var previous, last, quoted *syntax.Entry
 		visitSectionEntries(cur, func(e *syntax.Entry) {
@@ -252,10 +286,14 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 		}
 		multi := s.policy.Arrays == "block" || s.policy.Arrays != "flow" && template != nil && template.Start >= 0 && strings.Contains(string(src[template.Start:template.End]), "\n")
 		itemIndent := s.indent + s.unit
+		closingIndent := s.indent
 		if multi && template != nil && template.Start >= 0 && len(template.Items) > 0 && s.policy.Indent == "" {
-			base := sourceIndent(src, template.Start)
+			base := lineIndent(src, template.Start)
 			if gap := sourceIndent(src, template.Items[len(template.Items)-1].Start); strings.HasPrefix(gap, base) {
 				itemIndent = s.indent + strings.TrimPrefix(gap, base)
+			}
+			if gap := sourceIndent(src, template.End-1); strings.HasPrefix(gap, base) {
+				closingIndent = s.indent + strings.TrimPrefix(gap, base)
 			}
 		}
 		for i, x := range v {
@@ -272,24 +310,31 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 			}
 		}
 		if len(parts) == 0 {
+			if multi && template != nil && template.Start >= 0 {
+				return "[" + s.nl + closingIndent + "]", nil
+			}
 			return "[" + s.arrayPadding + "]", nil
 		}
+		trailing := template != nil && template.Start >= 0 && len(template.Items) > 0 && comma(src, template.Items[len(template.Items)-1].End, template.End-1) >= 0
 		if multi {
-			trailing := false
-			var last []*syntax.Node
-			if template != nil {
-				last = template.Items
-			}
-			if len(last) > 0 {
-				trailing = comma(src, last[len(last)-1].End, template.End-1) >= 0
-			}
 			body := strings.Join(parts, s.commaBefore+","+s.nl+itemIndent)
 			if trailing {
 				body += s.commaBefore + ","
 			}
-			return "[" + s.nl + itemIndent + body + s.nl + s.indent + "]", nil
+			return "[" + s.nl + itemIndent + body + s.nl + closingIndent + "]", nil
 		}
-		return "[" + s.arrayPadding + strings.Join(parts, s.commaBefore+","+s.separator) + s.arrayPadding + "]", nil
+		tail := ""
+		if trailing {
+			tail = s.commaBefore + ","
+		}
+		text := "[" + s.arrayPadding + strings.Join(parts, s.commaBefore+","+s.separator) + tail + s.arrayPadding + "]"
+		// A short inline example supplies spacing, not an unbounded line width.
+		// Only new scalar arrays use this soft limit; replacements, explicit
+		// flow, and inline-table contents retain their selected layout.
+		if !s.preserveArrayLayout && !s.flow && (s.policy.Arrays == "" || s.policy.Arrays == "auto") && len(parts) > 1 && scalarArray(v) && s.column+utf8.RuneCountInString(text) > inferredArrayWidth {
+			return "[" + s.nl + itemIndent + strings.Join(parts, s.commaBefore+","+s.nl+itemIndent) + tail + s.nl + s.indent + "]", nil
+		}
+		return text, nil
 	case map[string]any:
 		keys := make([]string, 0, len(v))
 		for k := range v {
@@ -325,6 +370,7 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 				}
 			}
 			childStyle := s
+			childStyle.flow = true
 			if multiline {
 				childStyle.indent = itemIndent
 			}
@@ -358,15 +404,38 @@ func renderInsertion(src []byte, value any, template *syntax.Node, s insertionSt
 	}
 }
 
+func scalarArray(items []any) bool {
+	for _, item := range items {
+		if kind := valueKind(item); kind == syntax.Array || kind == syntax.Object {
+			return false
+		}
+	}
+	return true
+}
+
 func insertArrayStyled(src []byte, parent *syntax.Node, value any, policy syntax.Style) ([]syntax.Edit, error) {
+	return appendArrayStyled(src, parent, []any{value}, policy)
+}
+
+func appendArrayStyled(src []byte, parent *syntax.Node, values []any, policy syntax.Style) ([]syntax.Edit, error) {
 	s := localInsertionStyle(src, parent)
 	s.policy = policy
 	s = s.overrides()
-	template := collectionTemplate(src, parent, value)
+	renderValues := func(style insertionStyle, separator string) (string, error) {
+		parts := make([]string, len(values))
+		for i, value := range values {
+			var err error
+			parts[i], err = renderInsertion(src, value, collectionTemplate(src, parent, value), style, 0)
+			if err != nil {
+				return "", err
+			}
+		}
+		return strings.Join(parts, separator), nil
+	}
 	open, closing := parent.Start+1, parent.End-1
 	multiline := strings.Contains(string(src[open:closing]), "\n")
 	if !multiline {
-		text, err := renderInsertion(src, value, template, s, 0)
+		text, err := renderValues(s, s.commaBefore+","+s.separator)
 		if err != nil {
 			return nil, err
 		}
@@ -400,7 +469,7 @@ func insertArrayStyled(src []byte, parent *syntax.Node, value any, policy syntax
 		}
 	}
 	s.indent = indent
-	text, err := renderInsertion(src, value, template, s, 0)
+	text, err := renderValues(s, s.commaBefore+","+s.nl+indent)
 	if err != nil {
 		return nil, err
 	}
