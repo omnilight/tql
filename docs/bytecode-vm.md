@@ -167,7 +167,9 @@ any `ASSIGN`, `ASSIGN_CONST` or `DELETE`, including unreachable code.
 ## Limits and errors
 
 - 100,000 `TICK` events: one per statement, one per `while` condition, one per
-  `for` iteration. This is the VM execution limit.
+  `for` iteration. This is the VM execution limit. The compiler emits a `TICK`
+  in every loop, and validation rejects any code cycle without one, including
+  assembled and loaded images.
 - Block nesting 128, expression nesting 256, path length 256, enforced by the
   parser.
 - Statement errors keep the `statement N:` prefix chain. Malformed loaded code

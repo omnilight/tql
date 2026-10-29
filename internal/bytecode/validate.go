@@ -21,6 +21,9 @@ const (
 	maxPathSteps    = 256
 	maxCodeDepth    = 256
 	maxNameLength   = 1 << 20
+
+	minInt32 = -1 << 31
+	maxInt32 = 1<<31 - 1
 )
 
 // Validate checks structural invariants of an in-memory program. It is run by
@@ -73,6 +76,17 @@ func Validate(p *Program) error {
 		for _, step := range path.Steps {
 			if step.Kind > StepMatch {
 				return fmt.Errorf("path %d: unknown step kind", i)
+			}
+			if step.Kind == StepIndex && !fitsInt32(step.Index) {
+				return fmt.Errorf("path %d: index %d is out of range", i, step.Index)
+			}
+			if step.Kind == StepSlice {
+				if step.HasFrom && !fitsInt32(step.From) {
+					return fmt.Errorf("path %d: slice start %d is out of range", i, step.From)
+				}
+				if step.HasTo && !fitsInt32(step.To) {
+					return fmt.Errorf("path %d: slice end %d is out of range", i, step.To)
+				}
 			}
 			if step.Kind == StepFilter || step.Kind == StepDynamic {
 				if step.Code < 0 || int(step.Code) >= len(p.Codes) {
@@ -161,8 +175,15 @@ func Validate(p *Program) error {
 	if err := validateCodeGraph(p); err != nil {
 		return err
 	}
+	if err := validateTickCycles(p); err != nil {
+		return err
+	}
 	return nil
 }
+
+// fitsInt32 reports whether a compiler or assembler integer fits the signed
+// 32-bit operands stored in bytecode images.
+func fitsInt32(value int) bool { return value >= minInt32 && value <= maxInt32 }
 
 func validateOp(p *Program, ci, oi int, code *Code, op Op) error {
 	reg := func(index int32) error {
@@ -474,8 +495,10 @@ func validateCodeGraph(p *Program) error {
 	for ci, code := range p.Codes {
 		for _, op := range code.Ops {
 			switch op.Code {
-			case OpPipe, OpSelect, OpAssign, OpFilterStream:
+			case OpPipe, OpAssign, OpFilterStream:
 				add(ci, op.C)
+			case OpSelect:
+				add(ci, op.B)
 			case OpForInit:
 				add(ci, op.B)
 			case OpSteps:
@@ -524,6 +547,72 @@ func validateCodeGraph(p *Program) error {
 		return nil
 	}
 	return visit(0, 0)
+}
+
+// validateTickCycles rejects control-flow cycles that contain no TICK. The VM
+// counts only TICK instructions, so such a cycle would execute forever. Code
+// from the compiler always ticks on every loop; assembled and loaded images
+// must satisfy the same rule.
+func validateTickCycles(p *Program) error {
+	for ci, code := range p.Codes {
+		state := make([]uint8, len(code.Ops))
+		nextEdge := make([]uint8, len(code.Ops))
+		stack := make([]int, 0, 64)
+		for start, op := range code.Ops {
+			if op.Code == OpTick || state[start] != 0 {
+				continue
+			}
+			state[start] = 1
+			stack = append(stack, start)
+			for len(stack) > 0 {
+				index := stack[len(stack)-1]
+				succ, count := ticklessSuccessors(p, code, index)
+				if int(nextEdge[index]) >= count {
+					state[index] = 2
+					stack = stack[:len(stack)-1]
+					continue
+				}
+				next := succ[nextEdge[index]]
+				nextEdge[index]++
+				switch state[next] {
+				case 1:
+					return fmt.Errorf("code %d op %d: execution cycle contains no TICK", ci, index)
+				case 0:
+					state[next] = 1
+					stack = append(stack, next)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// ticklessSuccessors returns the control-flow edges that stay inside the code
+// when TICK instructions are treated as cycle terminators.
+func ticklessSuccessors(p *Program, code *Code, index int) ([2]int, int) {
+	op := code.Ops[index]
+	nextOp := func() ([2]int, int) {
+		if index+1 < len(code.Ops) {
+			return [2]int{index + 1}, 1
+		}
+		return [2]int{}, 0
+	}
+	switch op.Code {
+	case OpTick, OpHalt:
+		return [2]int{}, 0
+	case OpJump:
+		return [2]int{int(op.A)}, 1
+	case OpJumpIfFalse, OpJumpIfTrue, OpJumpIfNotNull, OpForNext:
+		return [2]int{index + 1, int(op.B)}, 2
+	case OpLoopBreak, OpLoopContinue:
+		target := p.Loops[op.A].Break
+		if op.Code == OpLoopContinue {
+			target = p.Loops[op.A].Continue
+		}
+		return [2]int{int(target)}, 1
+	default:
+		return nextOp()
+	}
 }
 
 // DeriveMutates reports whether the code contains an assignment or deletion.

@@ -53,6 +53,9 @@ func Compile(p *query.Program) (*Program, error) {
 	if c.err != nil {
 		return nil, c.err
 	}
+	if err := Validate(prog); err != nil {
+		return nil, fmt.Errorf("bytecode: %w", err)
+	}
 	return prog, nil
 }
 
@@ -331,7 +334,10 @@ func (c *compiler) compileDelete(s query.Statement) error {
 }
 
 func (c *compiler) compileAssign(s query.Statement) error {
-	target := c.compileTarget(s.Target, s.Op)
+	target, err := c.compileTarget(s.Target, s.Op)
+	if err != nil {
+		return err
+	}
 	op := c.prog.AddText(s.Op)
 	if literal, ok := s.Value.(query.Literal); ok {
 		value := c.prog.AddValue(literal.Value)
@@ -343,23 +349,27 @@ func (c *compiler) compileAssign(s query.Statement) error {
 	return nil
 }
 
-func (c *compiler) compileTarget(e query.Expr, op string) int32 {
+func (c *compiler) compileTarget(e query.Expr, op string) (int32, error) {
 	if path, ok := e.(query.Path); ok && (op == "=" || op == "??=") {
 		target := TargetPlan{Kind: TargetPath, Base: -1, Path: -1, Root: path.Root}
 		if !path.Root && path.Base != nil {
 			target.Base = c.subStream(path.Base, "target-base")
 		}
 		if len(path.Steps) > 0 {
-			target.Path = c.path(path.Steps)
+			pathID, err := c.path(path.Steps)
+			if err != nil {
+				return 0, err
+			}
+			target.Path = pathID
 		} else {
 			target.Path = c.prog.AddPath(PathPlan{})
 		}
-		return c.prog.AddTarget(target)
+		return c.prog.AddTarget(target), nil
 	}
-	return c.prog.AddTarget(TargetPlan{Kind: TargetExpr, Base: c.subStream(e, "target"), Path: -1})
+	return c.prog.AddTarget(TargetPlan{Kind: TargetExpr, Base: c.subStream(e, "target"), Path: -1}), nil
 }
 
-func (c *compiler) path(steps []query.Step) int32 {
+func (c *compiler) path(steps []query.Step) (int32, error) {
 	plan := PathPlan{}
 	if len(steps) > 0 {
 		plan.Steps = make([]Step, 0, len(steps))
@@ -371,19 +381,23 @@ func (c *compiler) path(steps []query.Step) int32 {
 			item.Kind = StepKey
 			item.Key = step.Key
 		case "index":
+			index, ok := pathIndex(step.Index)
+			if !ok {
+				return 0, fmt.Errorf("path index %d is out of range", step.Index)
+			}
 			item.Kind = StepIndex
-			item.Index = step.Index
+			item.Index = int(index)
 		case "wildcard":
 			item.Kind = StepWildcard
 		case "slice":
 			item.Kind = StepSlice
 			if step.From != nil {
 				item.HasFrom = true
-				item.From = *step.From
+				item.From = int(clampInt32(*step.From))
 			}
 			if step.To != nil {
 				item.HasTo = true
-				item.To = *step.To
+				item.To = int(clampInt32(*step.To))
 			}
 		case "filter":
 			if match, ok := c.matchPlan(step.Predicate); ok {
@@ -392,16 +406,49 @@ func (c *compiler) path(steps []query.Step) int32 {
 			} else {
 				item.Kind = StepFilter
 				item.Code = c.subTruth(step.Predicate, "filter")
+				if c.err != nil {
+					return 0, c.err
+				}
 			}
 		case "dynamic":
 			item.Kind = StepDynamic
 			item.Code = c.subStream(step.Predicate, "selector")
+			if c.err != nil {
+				return 0, c.err
+			}
 		default:
 			panic("bytecode: unknown path step " + step.Kind)
 		}
 		plan.Steps = append(plan.Steps, item)
 	}
-	return c.prog.AddPath(plan)
+	return c.prog.AddPath(plan), nil
+}
+
+// pathIndex keeps indexes representable in the image. Negative values below
+// the int32 range already address before the first element, so clamping them
+// preserves behavior; positive values beyond the range are rejected instead of
+// wrapping to a different element.
+func pathIndex(value int) (int32, bool) {
+	switch {
+	case value > maxInt32:
+		return 0, false
+	case value < minInt32:
+		return minInt32, true
+	default:
+		return int32(value), true
+	}
+}
+
+// clampInt32 preserves slice clamping for bounds outside the image range.
+func clampInt32(value int) int32 {
+	switch {
+	case value < minInt32:
+		return minInt32
+	case value > maxInt32:
+		return maxInt32
+	default:
+		return int32(value)
+	}
 }
 
 func (c *compiler) subStream(e query.Expr, name string) int32 {
@@ -501,7 +548,11 @@ func (c *compiler) compileStream(e query.Expr, dst int32) error {
 				// source slice before writing the destination.
 				src = base
 			}
-			c.emit(Op{Code: OpSteps, A: dst, B: src, C: c.path(x.Steps)})
+			pathID, err := c.path(x.Steps)
+			if err != nil {
+				return err
+			}
+			c.emit(Op{Code: OpSteps, A: dst, B: src, C: pathID})
 		}
 		return nil
 	case query.Object:
@@ -549,7 +600,11 @@ func (c *compiler) compileStream(e query.Expr, dst int32) error {
 				predicate := c.subScalar(selectPredicate, "select")
 				c.emit(Op{Code: OpFilterStream, A: dst, B: src, C: predicate})
 			} else if steps, ok := fusePath(x.Right); ok {
-				c.emit(Op{Code: OpSteps, A: dst, B: src, C: c.path(steps)})
+				pathID, err := c.path(steps)
+				if err != nil {
+					return err
+				}
+				c.emit(Op{Code: OpSteps, A: dst, B: src, C: pathID})
 			} else {
 				right := c.subStream(x.Right, "pipe")
 				c.emit(Op{Code: OpPipe, A: dst, B: src, C: right})
@@ -770,8 +825,12 @@ func (c *compiler) matchPlan(e query.Expr) (MatchPlan, bool) {
 	plan := MatchPlan{OpConst: -1, ValueConst: -1}
 	if step, ok := simpleMatchPath(e); ok {
 		if step.Kind == "index" {
+			index, ok := pathIndex(step.Index)
+			if !ok {
+				return MatchPlan{}, false
+			}
 			plan.IsIndex = true
-			plan.Index = int32(step.Index)
+			plan.Index = index
 		} else {
 			plan.KeyConst = c.prog.AddText(step.Key)
 		}
@@ -790,8 +849,12 @@ func (c *compiler) matchPlan(e query.Expr) (MatchPlan, bool) {
 		return MatchPlan{}, false
 	}
 	if step.Kind == "index" {
+		index, ok := pathIndex(step.Index)
+		if !ok {
+			return MatchPlan{}, false
+		}
 		plan.IsIndex = true
-		plan.Index = int32(step.Index)
+		plan.Index = index
 	} else {
 		plan.KeyConst = c.prog.AddText(step.Key)
 	}

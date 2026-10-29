@@ -506,6 +506,9 @@ func parseMatch(args []string) (MatchPlan, error) {
 			if e != nil {
 				return MatchPlan{}, e
 			}
+			if !fitsInt32(value) {
+				return MatchPlan{}, fmt.Errorf("match index %d is out of range", value)
+			}
 			match.Index = int32(value)
 			match.IsIndex = true
 		case "op":

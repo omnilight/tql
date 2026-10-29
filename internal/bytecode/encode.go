@@ -230,6 +230,9 @@ func writeSection(out *bytes.Buffer, id uint16, fn func(*writer) error) error {
 	if err := fn(&body); err != nil {
 		return err
 	}
+	if body.err != nil {
+		return body.err
+	}
 	var head [8]byte
 	binary.LittleEndian.PutUint16(head[0:2], id)
 	binary.LittleEndian.PutUint16(head[2:4], 0)
@@ -257,6 +260,7 @@ func frame(payload []byte) ([]byte, error) {
 
 type writer struct {
 	buf []byte
+	err error
 }
 
 func (w *writer) u8(v uint8) { w.buf = append(w.buf, v) }
@@ -267,6 +271,13 @@ func (w *writer) u32(v uint32) {
 }
 func (w *writer) i32(v int32) { w.u32(uint32(v)) }
 func (w *writer) string(s string) {
+	if w.err != nil {
+		return
+	}
+	if len(s) > maxNameLength {
+		w.err = fmt.Errorf("string length %d exceeds %d", len(s), maxNameLength)
+		return
+	}
 	w.u32(uint32(len(s)))
 	w.buf = append(w.buf, s...)
 }

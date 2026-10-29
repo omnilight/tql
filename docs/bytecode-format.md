@@ -136,9 +136,14 @@ There is no implicit migration. Opcode IDs are never reused.
 | Path steps | 256 |
 | Sub-code depth | 256 |
 | Value nesting | 256 |
+| String operand | 1 MiB |
+| Path index / slice bound | signed 32-bit |
 
 The compiler produces programs within these limits; the loader rejects images
-outside them.
+outside them. Positive path indexes above the 32-bit range are rejected before
+encoding; negative indexes and slice bounds clamp to the edge of the range
+because values before the first element behave identically. The encoder and
+decoder apply the same 1 MiB string limit.
 
 ## Loading and validation
 
@@ -158,6 +163,8 @@ The verifier checks at least:
 - path/match steps have known kinds and valid references;
 - loops and scopes reference valid instructions and slots;
 - sub-code references form an acyclic graph within the depth limit;
+- every control-flow cycle contains `TICK`, so the VM step limit applies to
+  assembled and loaded code as well as to compiled scripts;
 - operators and assignment operators are known;
 - parameters are valid, unique, and have a default or required flag;
 - code ends in `HALT` and the image has no trailing bytes.
@@ -199,7 +206,8 @@ targets `T0`, sets `A0`/`D0`, codes `C0`, loops `L0`, scopes `S0`.
 | `.end` | Optional end of a path/code/file |
 
 Jump operands are numeric instruction indexes. The VM validates every index.
-Labels are a planned readability improvement, not a v1 requirement.
+Path index and slice operands are signed 32-bit; assembly rejects values outside
+that range. Labels are a planned readability improvement, not a v1 requirement.
 
 ### Example
 
