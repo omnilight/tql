@@ -2,14 +2,16 @@
 
 ## Unreleased
 
+## v0.5.0
+
 - Execute compiled TQL programs on a register bytecode VM, with lexical slots,
   materialized stream/scalar operands and the existing transactional edit engine.
 - Add versioned bytecode images with `Program.MarshalBinary` and
   `tql.LoadProgram`, including bounded decoding, structural validation and fuzz
   coverage.
 - Add canonical disassembly and assembly through `Program.Disassemble`,
-  `tql.Assemble`, `--disassemble`, `--assemble`, `--program` and
-  `--emit-bytecode`.
+  `tql.Assemble`, `--disassemble`, `--assemble`, `--program`,
+  `--emit-bytecode` and `--emit-assembly`.
 - Reject bytecode whose control-flow cycles contain no `TICK`, fix `select`
   sub-code validation, and reject path indexes and strings that cannot be
   represented without changing behavior. `Compile`, `Assemble` and
@@ -32,6 +34,10 @@
   `auto`.
 - Reduce allocations for sequential edits and batch independent deletions into
   one parse and semantic comparison.
+- Add bytecode source, assembly and image examples, jq-to-TQL examples, and an
+  OpenAPI 3.0 to 3.1 migration recipe with documented scope and expected output.
+- Expand linting for correctness, portability and test quality, and modernize
+  the code while retaining Go 1.23 compatibility.
 
 ## v0.4.0
 
