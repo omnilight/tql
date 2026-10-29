@@ -27,6 +27,18 @@ rows are neutral, not a reliable fine-grained timing signal. `LoadProgram` is
 about 3.0 µs for the benchmark program versus about 4.6 µs for `Compile`
 (102 → 39 allocations); both include the validation pass.
 
+## Where the gain goes
+
+Every row above times `Document.Execute` on a document that is already parsed.
+In a CLI run the parser usually costs more than the query: on 31 KB JSON files
+parsing takes about 270 µs, while a plain key read executes in about 1 µs, a
+filter with projection in 6–17 µs and a counting loop in 95–282 µs. The engine
+is therefore 2–3× faster on these queries, but end to end simple reads are
+within noise (−3%), filter reads are about 7% faster and loops or `walk`
+traversals are 30–40% faster. Edits stay neutral for the same reason: parsing,
+source editing, reparsing and verification dominate them. Judge end-to-end
+expectations by the parse share of the workload, not by the table above.
+
 ## Workloads
 
 | Benchmark | What it exercises |
