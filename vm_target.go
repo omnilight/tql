@@ -491,7 +491,7 @@ func (v *scriptVM) assign(op string, targetID, rhsID int32, rhsValue any, hasVal
 					return err
 				}
 			}
-			if !query.Equal(n.Interface(), value) {
+			if !query.EqualNodeValue(n, value) {
 				updates = append(updates, assignment{owner: group.owner, path: path, value: value})
 			}
 		}
@@ -549,6 +549,15 @@ func (v *scriptVM) delete(setID int32, f *vmFrame) error {
 		return err
 	}
 	for _, group := range groups {
+		if group.owner == nil && len(group.paths) > 1 {
+			applied, err := v.doc.deleteBatch(group.paths)
+			if err != nil {
+				return err
+			}
+			if applied {
+				continue
+			}
+		}
 		for _, path := range group.paths {
 			n := locate(v.root(group.owner), path)
 			if n == nil {

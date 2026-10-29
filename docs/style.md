@@ -4,8 +4,10 @@ TQL changes selected source ranges. Style is a **generation policy**, rather tha
 an instruction to format the whole document. Existing containers keep their layout
 when a member or item is added. Equal assignments remain byte-for-byte no-ops.
 Whole-container replacements still have the replacement behavior documented in
-[architecture](architecture.md#byte-preservation); use member assignment or append
-for style-aware additions. An empty YAML document also uses this generation policy
+[architecture](architecture.md#byte-preservation). TOML bracket-array replacements
+reuse their own layout; an exact prefix extension under `auto` retains the existing
+array bytes and comments. Use member assignment or append for other style-aware
+additions. An empty YAML document also uses this generation policy
 when its initial value tree is created.
 
 ## CLI and Go API
@@ -88,8 +90,7 @@ quoted; strings containing characters forbidden in literal quotes use escaped
 double quotes. Block-string emission checks indentation, folding and chomping
 against the parser. A folded representation that would alter the value falls
 back to literal style, then to double quotes if necessary. Newline counts and
-leading spaces are data and must survive. No line-width-based word wrapping is
-performed.
+leading spaces are data and must survive. String contents are never word-wrapped.
 
 Numeric policy changes integral decimal values only. `auto` infers an existing
 integer base; negative values use decimal when the preferred base would be illegal.
@@ -118,6 +119,13 @@ signed 64-bit integer limit still applies.
    Multiline inline-table templates retain their line layout.
    New TOML object arrays can also inherit an inline-object convention when no
    existing object array provides a template.
+
+Adjacent TOML array-table items supply collection templates when the selected
+item has no local example. New scalar bracket arrays under `auto` expand to
+multiple lines if the inferred inline assignment would exceed a soft 100-column
+limit. This affects generated text only: it does not reflow existing array layouts,
+arrays inside inline tables, or explicit `flow` values. Indivisible scalars can
+still exceed the limit; no scalar is shortened or split.
 
 In TOML a nested header must stay within the selected `[[table]]` element. The
 editor inserts before the next element, rather than appending a child at EOF and

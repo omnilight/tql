@@ -158,11 +158,11 @@ func TestDelete(t *testing.T) {
 		want      string
 	}{
 		{"# top\na.b = 1 # keep\na.c=2\n", "a.b", -1, "# top\n # keep\na.c=2\n"},
-		{"x=[ 1, # keep\n 2, 3, ]\n", "x", 1, "x=[ 1, # keep\n  3, ]\n"},
-		{"x=[1, 2]\n", "x", 1, "x=[1 ]\n"},
-		{"x={a=1, b=2, c=3}\n", "x.b", -1, "x={a=1,  c=3}\n"},
-		{"x={a.b=1, a.c=2, z=3}\n", "x.a", -1, "x={  z=3}\n"},
-		{"x={z=3, a.b=1, a.c=2}\n", "x.a", -1, "x={z=3  }\n"},
+		{"x=[ 1, # keep\n 2, 3, ]\n", "x", 1, "x=[ 1, # keep\n 3, ]\n"},
+		{"x=[1, 2]\n", "x", 1, "x=[1]\n"},
+		{"x={a=1, b=2, c=3}\n", "x.b", -1, "x={a=1, c=3}\n"},
+		{"x={a.b=1, a.c=2, z=3}\n", "x.a", -1, "x={z=3}\n"},
+		{"x={z=3, a.b=1, a.c=2}\n", "x.a", -1, "x={z=3}\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.src, func(t *testing.T) {

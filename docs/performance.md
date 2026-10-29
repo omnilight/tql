@@ -35,7 +35,10 @@ checks this behavior for 256 targets, including the exact resulting bytes.
 
 Overlapping backend edits fall back to sequential processing. For example, two
 children of the same YAML alias can each require replacing the entire alias token.
-Insertions, deletions, separate statements, and separate loop iterations can also
+Independent deletion targets from one statement also share a parse and full
+semantic check. If separator ranges overlap or the final item requires new
+empty-container syntax, the engine falls back to ordered sequential deletion.
+Insertions, separate statements, and separate loop iterations can also
 need sequential reparsing. For bulk updates, a single multi-target statement is
 usually less expensive than one assignment per loop iteration.
 
@@ -43,6 +46,22 @@ With bounded tree depth, target deduplication and overlap detection use sorting 
 `O(k log k)` for `k` targets. Independent replacements take approximately
 `O(n + k log k)` plus expression evaluation, where `n` is the document size.
 Sequential edits can take `O(k × n)`.
+
+Full semantic verification compares parsed nodes directly. A single mutation
+copies only the expected ancestor path instead of converting the whole old and new
+trees to maps and slices. This reduces allocations; it does not eliminate parsing
+after each sequential operation. `let` values remain detached snapshots and loop
+references still rebase after every mutation.
+
+`BenchmarkTOMLWorkerEdits` uses a synthetic document with 40 worker tables and
+measures sequential field edits, whole and partial deletions, and a multi-target
+replacement. It includes initial parsing and execution, with compilation outside
+the timer. No private corpus or service access is required:
+
+```sh
+GOMAXPROCS=1 go test . -run '^$' -bench '^BenchmarkTOMLWorkerEdits$' \
+  -benchmem -benchtime=3x -count=7 -cpu=1
+```
 
 ## Tree lookup and allocation
 

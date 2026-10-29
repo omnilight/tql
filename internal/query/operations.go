@@ -19,6 +19,9 @@ func Equal(a, b any) bool {
 		if !ok {
 			return false
 		}
+		if x == y {
+			return true
+		}
 		if xi, ok := smallInt(x); ok {
 			if yi, ok := smallInt(y); ok {
 				return xi == yi
@@ -67,6 +70,76 @@ func Equal(a, b any) bool {
 		return true
 	}
 	return reflect.DeepEqual(a, b)
+}
+
+// EqualNodes compares complete semantic trees without allocating detached maps
+// and slices. Source ranges, spelling, and format metadata do not affect equality.
+func EqualNodes(a, b *syntax.Node) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Kind != b.Kind {
+		return false
+	}
+	switch a.Kind {
+	case syntax.Object:
+		if len(a.Entries) != len(b.Entries) {
+			return false
+		}
+		for _, e := range a.Entries {
+			if !EqualNodes(e.Value, b.Get(e.Key)) {
+				return false
+			}
+		}
+		return true
+	case syntax.Array:
+		if len(a.Items) != len(b.Items) {
+			return false
+		}
+		for i, n := range a.Items {
+			if !EqualNodes(n, b.Items[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return Equal(a.Value, b.Value)
+	}
+}
+
+// EqualNodeValue compares a parsed tree with a detached semantic value without
+// materializing a second copy of the parsed tree.
+func EqualNodeValue(n *syntax.Node, value any) bool {
+	if n == nil {
+		return value == nil
+	}
+	switch n.Kind {
+	case syntax.Object:
+		m, ok := value.(map[string]any)
+		if !ok || len(m) != len(n.Entries) {
+			return false
+		}
+		for _, e := range n.Entries {
+			v, exists := m[e.Key]
+			if !exists || !EqualNodeValue(e.Value, v) {
+				return false
+			}
+		}
+		return true
+	case syntax.Array:
+		a, ok := value.([]any)
+		if !ok || len(a) != len(n.Items) {
+			return false
+		}
+		for i, child := range n.Items {
+			if !EqualNodeValue(child, a[i]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return Equal(n.Value, value)
+	}
 }
 func Operation(op string, a, b any) (any, error) {
 	switch op {

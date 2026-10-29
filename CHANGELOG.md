@@ -25,6 +25,13 @@
   filters, primitive equality fast paths, single-node path fast paths, integer
   arithmetic before exact rational arithmetic, read-only loop bindings, direct
   scalar reads and pooled execution frames.
+- Preserve local TOML formatting when deleting assignments, array elements, and
+  tables, including surrounding comments, separators, and line endings.
+- Insert TOML fields before section separators, preserve array replacement layout
+  and comments on prefix extensions, and wrap long generated scalar arrays under
+  `auto`.
+- Reduce allocations for sequential edits and batch independent deletions into
+  one parse and semantic comparison.
 
 ## v0.4.0
 

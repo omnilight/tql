@@ -52,7 +52,7 @@ func (d *Document) applyOperation(op syntax.Operation) error {
 	}
 	v := op.Value()
 	if n != nil {
-		if query.Equal(n.Interface(), v) {
+		if query.EqualNodeValue(n, v) {
 			return nil
 		}
 		return d.mutate("replace", n, "", v)

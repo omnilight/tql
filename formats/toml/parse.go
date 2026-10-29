@@ -199,7 +199,7 @@ func (p *parser) keypath() ([]string, int, int, error) {
 	return keys, start, p.pos, nil
 }
 func (p *parser) addEntry(n *syntax.Node, key string, v *syntax.Node, ks, ke, start, end int) {
-	e := &syntax.Entry{Key: key, Value: v, KeyStart: ks, KeyEnd: ke, Start: start, End: end, Meta: map[string]any{}}
+	e := &syntax.Entry{Key: key, Value: v, KeyStart: ks, KeyEnd: ke, Start: start, End: end}
 	n.Entries = append(n.Entries, e)
 	if p.entries[n] == nil {
 		p.entries[n] = make(map[string]*syntax.Node)
