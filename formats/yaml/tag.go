@@ -117,8 +117,8 @@ func decodeTagURI(raw string, start int) (string, error) {
 }
 func resolvedTag(uri string, start, end int) tagInfo {
 	name := uri
-	if strings.HasPrefix(uri, "tag:yaml.org,2002:") {
-		name = strings.TrimPrefix(uri, "tag:yaml.org,2002:")
+	if after, ok := strings.CutPrefix(uri, "tag:yaml.org,2002:"); ok {
+		name = after
 	}
 	return tagInfo{name: name, uri: uri, start: start, end: end}
 }

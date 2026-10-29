@@ -46,3 +46,29 @@ func atomicWrite(path string, before, after []byte, original os.FileInfo) error 
 	}
 	return os.Rename(temp, path)
 }
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, ".tql-*")
+	if err != nil {
+		return err
+	}
+	temp := f.Name()
+	defer func() { _ = os.Remove(temp) }()
+	if err = f.Chmod(mode); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if _, err = f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temp, path)
+}

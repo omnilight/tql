@@ -11,6 +11,7 @@ idempotence; running a migration twice leaves the second result unchanged.
 | [.golangci.yaml](go-linters/README.md) | Adopt extra linters without duplicating existing entries | Variables, conditions, loops, append at array length |
 | [compose.yaml](compose-rollout/README.md) | Update a labelled group of services and their log limits | Object traversal, live references, selective changes |
 | [package.json](node-release/README.md) | Update release metadata and modernize npm hooks | Assignment, insertion, deletion, local indentation |
+| [openapi.yaml](openapi31/README.md) | Migrate common OpenAPI 3.0 schema constructs to 3.1 | Recursive `walk`, conditions, type unions, numeric exclusive bounds |
 
 Commands in each recipe assume that `tql` is on `PATH` and that the current
 directory is this repository's root. Omit `-i` to preview the edited document;

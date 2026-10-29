@@ -125,8 +125,8 @@ func (d *Document) mutate(op string, n *syntax.Node, key string, v any) error {
 	if !query.Equal(expected, d.root.Interface()) {
 		return fmt.Errorf("format edit changed an unexpected value; transaction aborted")
 	}
-	if d.runtime != nil {
-		d.runtime.rebase(nil, op, a)
+	if d.state != nil {
+		d.state.rebase(nil, op, a)
 	}
 	return nil
 }
@@ -157,7 +157,7 @@ func (d *Document) mutateOwned(owner *binding, op string, n *syntax.Node, key st
 	}
 	updated := semanticChange(owner.value.Interface(), op, a, key, v)
 	owner.value = query.Node(updated)
-	d.runtime.rebase(owner, op, a)
+	d.state.rebase(owner, op, a)
 	return nil
 }
 func semanticChange(tree any, op string, a address, key string, v any) any {
@@ -201,7 +201,7 @@ func (d *Document) replaceMany(updates []assignment) error {
 		}
 	}
 	for _, u := range updates {
-		n := locate(d.runtime.root(u.owner), u.path)
+		n := locate(d.state.root(u.owner), u.path)
 		if n == nil {
 			return fmt.Errorf("assignment target disappeared")
 		}
@@ -234,11 +234,11 @@ func (d *Document) replaceBatch(updates []assignment) (bool, error) {
 	}
 	source, err := syntax.Apply(d.source, edits)
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // A rejected batch falls back to sequential edits.
 	}
 	root, err := d.format.Parse(source)
 	if err != nil || root == nil {
-		return false, nil
+		return false, nil //nolint:nilerr // Invalid batch output falls back to sequential edits.
 	}
 	syntax.Link(root)
 	if !query.Equal(expected, root.Interface()) {
@@ -246,7 +246,7 @@ func (d *Document) replaceBatch(updates []assignment) (bool, error) {
 	}
 	d.source, d.root = source, root
 	for _, u := range updates {
-		d.runtime.rebase(nil, "replace", u.path)
+		d.state.rebase(nil, "replace", u.path)
 	}
 	return true, nil
 }

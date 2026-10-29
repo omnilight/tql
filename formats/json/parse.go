@@ -322,7 +322,7 @@ func (p *parser) escapedString(start int) (string, error) {
 
 func (p *parser) hex4() (rune, error) {
 	var n rune
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		if p.pos == len(p.source) {
 			return 0, p.fail("incomplete Unicode escape")
 		}

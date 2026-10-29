@@ -37,10 +37,10 @@ func ParseWith(source []byte, format Format, options ...ParseOption) (*Document,
 // Parse or ParseWith; the zero value is not ready for use. A Document must not be
 // read or modified concurrently without external synchronization.
 type Document struct {
-	source  []byte
-	root    *syntax.Node
-	format  Format
-	runtime *scriptRuntime
+	source []byte
+	root   *syntax.Node
+	format Format
+	state  documentState
 }
 
 // Bytes returns a copy of the current source.
@@ -56,6 +56,8 @@ type Result struct {
 	Bytes   []byte
 	Changed bool
 }
+
+var errProgram = errors.New("nil program")
 
 // Exec compiles and executes a query or script. Any error leaves d unchanged.
 func (d *Document) Exec(text string, options ...ExecOption) (*Result, error) {
@@ -79,7 +81,7 @@ func (d *Document) Query(text string, options ...ExecOption) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	r, err := d.execute(p, false, o)
+	r, err := d.executeVM(p, false, o)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +107,7 @@ func Eval(source []byte, format, text string, options ...EvalOption) (*Result, e
 	if err != nil {
 		return nil, err
 	}
-	return d.execute(p, true, o.exec)
+	return d.executeVM(p, true, o.exec)
 }
 
 // Execute runs a compiled program and commits only if every statement succeeds.
@@ -115,10 +117,12 @@ func (d *Document) Execute(p *Program, options ...ExecOption) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return d.execute(p, true, o)
+	return d.executeVM(p, true, o)
 }
-func (d *Document) execute(p *Program, wantBytes bool, options execOptions) (*Result, error) {
-	if p == nil || p.program == nil {
+
+// executeVM runs the compiled bytecode on a work copy.
+func (d *Document) executeVM(p *Program, wantBytes bool, options execOptions) (*Result, error) {
+	if p == nil || p.code == nil {
 		return nil, errors.New("nil program")
 	}
 	if d == nil || d.root == nil || d.format == nil {
@@ -129,9 +133,11 @@ func (d *Document) execute(p *Program, wantBytes bool, options execOptions) (*Re
 		return nil, err
 	}
 	work := &Document{source: d.source, root: d.root, format: d.format}
-	work.runtime = newRuntime(work, bindings)
+	machine := newVM(work, bindings, p.code)
+	defer releaseVM(machine)
+	work.state = machine
 	result := &Result{Values: []any{}}
-	if _, err := work.runtime.block(p.program.Statements, false, result); err != nil {
+	if err := machine.run(result); err != nil {
 		return nil, err
 	}
 	if wantBytes {

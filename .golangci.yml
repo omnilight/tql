@@ -4,7 +4,43 @@ run:
 linters:
   default: standard
   enable:
+    # Correct error handling and resource hygiene.
+    - bodyclose
     - errorlint
+    - nilerr
+    - nilnesserr
+    - nolintlint
+    # Modern Go and standard-library usage.
+    - copyloopvar
+    - modernize
+    - unconvert
+    - usestdlibvars
+    # Portability, security and configuration safety.
+    - bidichk
+    - durationcheck
+    - errchkjson
+    - errname
+    - gocheckcompilerdirectives
+    - predeclared
+    # Repository consistency and test quality.
+    - gocritic
+    - misspell
+    - revive
+    - thelper
+    - unparam
+    - wastedassign
+  settings:
+    gocritic:
+      # The parser and format backends intentionally use readable if/else
+      # dispatch chains; the remaining diagnostics are still enabled.
+      disabled-checks:
+        - ifElseChain
+    revive:
+      rules:
+        # Internal packages export identifiers between packages but are not a
+        # public API, so requiring a doc comment on every one is not useful.
+        - name: exported
+          disabled: true
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

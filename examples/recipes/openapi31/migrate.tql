@@ -1,0 +1,37 @@
+# Migrate the schema subset used in this fixture from OpenAPI 3.0 to 3.1.
+openapi = "3.1.0";
+
+for $node in walk(components.schemas) {
+    if type($node) == "object" {
+        if has($node, "nullable") {
+            if $node.nullable {
+                if has($node, "type") {
+                    $node.type = [$node.type, "null"];
+                }
+            }
+            del($node.nullable);
+        }
+
+        if has($node, "exclusiveMinimum") and type($node.exclusiveMinimum) == "boolean" {
+            if $node.exclusiveMinimum == true {
+                if has($node, "minimum") {
+                    $node.exclusiveMinimum = $node.minimum;
+                    del($node.minimum);
+                }
+            } else {
+                del($node.exclusiveMinimum);
+            }
+        }
+
+        if has($node, "exclusiveMaximum") and type($node.exclusiveMaximum) == "boolean" {
+            if $node.exclusiveMaximum == true {
+                if has($node, "maximum") {
+                    $node.exclusiveMaximum = $node.maximum;
+                    del($node.maximum);
+                }
+            } else {
+                del($node.exclusiveMaximum);
+            }
+        }
+    }
+}

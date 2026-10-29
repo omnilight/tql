@@ -40,7 +40,7 @@ func TestDiffDeterministicAndDetached(t *testing.T) {
 	if !bytes.Equal(a.Bytes(), aBefore) || !bytes.Equal(b.Bytes(), bBefore) {
 		t.Fatal("planning changed a document")
 	}
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		again, err := edit.Diff(a, b)
 		if err != nil {
 			t.Fatal(err)

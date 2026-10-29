@@ -1,5 +1,5 @@
-.PHONY: build test race vet fmt fmt-check check lint workflow-lint vuln tools fuzz conformance yaml-suite release clean \
-	fuzz-json fuzz-toml fuzz-yaml fuzz-yaml-graph fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote
+.PHONY: build test race vet fmt fmt-check check lint workflow-lint vuln tools fuzz conformance yaml-suite bench-bytecode release clean \
+	fuzz-json fuzz-toml fuzz-yaml fuzz-yaml-graph fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote fuzz-bytecode
 
 VERSION ?= dev
 FUZZTIME ?= 10s
@@ -40,7 +40,7 @@ tools:
 	go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
 	go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
-fuzz: fuzz-json fuzz-toml fuzz-yaml fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote
+fuzz: fuzz-json fuzz-toml fuzz-yaml fuzz-query fuzz-exec fuzz-insertion fuzz-yaml-edits fuzz-yaml-aliases fuzz-quote fuzz-bytecode
 
 fuzz-json:
 	go test ./formats/json -run '^$$' -fuzz '^FuzzParse$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
@@ -72,8 +72,16 @@ fuzz-yaml-aliases:
 fuzz-quote:
 	go test ./syntax -run '^$$' -fuzz '^FuzzQuote$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
 
+fuzz-bytecode:
+	go test ./internal/bytecode -run '^$$' -fuzz '^FuzzDecode$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+	go test ./internal/bytecode -run '^$$' -fuzz '^FuzzAssemble$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+	go test . -run '^$$' -fuzz '^FuzzProgramRoundTrip$$' -fuzztime $(FUZZTIME) -fuzzminimizetime $(FUZZMINIMIZETIME) -parallel 2
+
 conformance:
 	go test ./conformance -count=1
+
+bench-bytecode:
+	go test -run '^$$' -bench 'Benchmark(VM|CompileProgram|LoadProgram|DisassembleProgram|AssembleProgram)' -benchmem -count=10 .
 
 yaml-suite:
 	go test ./conformance -run '^TestYAMLTestSuite$$' -count=1

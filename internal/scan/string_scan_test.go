@@ -8,7 +8,7 @@ import (
 func TestIndexStringSpecial(t *testing.T) {
 	// Exercise every byte, lane, and tail with unaligned subslices. Bytes >=
 	// 0x80 are ordinary here: document-wide UTF-8 validation is separate.
-	for alignment := 0; alignment < 16; alignment++ {
+	for alignment := range 16 {
 		for size := 0; size <= 65; size++ {
 			backing := bytes.Repeat([]byte{'a'}, alignment+size+16)
 			source := backing[alignment : alignment+size : alignment+size]

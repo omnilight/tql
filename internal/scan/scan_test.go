@@ -19,11 +19,11 @@ func TestScanners(t *testing.T) {
 		{"yamlcontrol", YAMLControl, func(c byte) bool { return c < 32 && c != '\r' && c != '\n' && c != '\t' }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for alignment := 0; alignment < 16; alignment++ {
+			for alignment := range 16 {
 				backing := bytes.Repeat([]byte{'a'}, alignment+65)
 				s := backing[alignment:]
 				for pos := range s {
-					for c := 0; c < 256; c++ {
+					for c := range 256 {
 						s[pos] = byte(c)
 						want := len(s)
 						if tc.special(byte(c)) {

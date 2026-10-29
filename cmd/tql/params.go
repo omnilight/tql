@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"strings"
 
@@ -73,8 +74,6 @@ func (p *parameterFlags) load() (map[string]any, error) {
 			return nil, fmt.Errorf("parameters file %q must contain a JSON object", p.file)
 		}
 	}
-	for name, value := range p.values {
-		values[name] = value
-	}
+	maps.Copy(values, p.values)
 	return values, nil
 }

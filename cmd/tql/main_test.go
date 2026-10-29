@@ -192,3 +192,51 @@ func TestCLIStyle(t *testing.T) {
 		}
 	}
 }
+
+func TestCLIBytecode(t *testing.T) {
+	dir := t.TempDir()
+	queryFile := filepath.Join(dir, "program.tql")
+	imageFile := filepath.Join(dir, "program.tqlc")
+	asmFile := filepath.Join(dir, "program.tqla")
+	if err := os.WriteFile(queryFile, []byte(`a[] += 1; a`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, err := invoke([]string{"--query-file", queryFile, "--emit-bytecode", imageFile}, ""); code != 0 || out != "" {
+		t.Fatalf("emit: %d %q %s", code, out, err)
+	}
+	if code, out, err := invoke([]string{"--program", imageFile, "-f", "json"}, `{"a":[1,2]}`); code != 0 || out != `{"a":[2,3]}` {
+		t.Fatalf("run: %d %q %s", code, out, err)
+	}
+	code, text, err := invoke([]string{"--program", imageFile, "--disassemble"}, "")
+	if code != 0 || !strings.Contains(text, ".version 1") || !strings.Contains(text, "HALT") {
+		t.Fatalf("disassemble: %d %q %s", code, text, err)
+	}
+	if err := os.WriteFile(asmFile, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, err := invoke([]string{"--query-file", queryFile, "--emit-assembly", asmFile}, ""); code != 0 || out != "" {
+		t.Fatalf("emit assembly: %d %q %s", code, out, err)
+	}
+	written, readErr := os.ReadFile(asmFile)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(written) != text {
+		t.Fatal("emit-assembly differs from disassemble")
+	}
+	if code, out, err := invoke([]string{"--query-file", queryFile, "--emit-assembly", "-"}, ""); code != 0 || out != text {
+		t.Fatalf("emit assembly stdout: %d %q %s", code, out, err)
+	}
+	if code, _, _ := invoke([]string{"--query-file", queryFile, "--emit-assembly", asmFile, "--emit-bytecode", imageFile}, ""); code != 2 {
+		t.Fatal("conflicting output modes accepted")
+	}
+	if code, out, err := invoke([]string{"--assemble", asmFile, "-f", "json"}, `{"a":[1,2]}`); code != 0 || out != `{"a":[2,3]}` {
+		t.Fatalf("assemble: %d %q %s", code, out, err)
+	}
+	if code, _, _ := invoke([]string{"--program", imageFile, "--assemble", asmFile}, ""); code != 2 {
+		t.Fatal("mutually exclusive sources accepted")
+	}
+	if code, _, _ := invoke([]string{"--program", imageFile, "--emit-bytecode", "-"}, ""); code != 2 {
+		t.Fatal("stdout image accepted")
+	}
+}

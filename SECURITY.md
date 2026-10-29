@@ -12,6 +12,6 @@ If private reporting is unavailable, open an issue asking for a private reportin
 channel without publishing exploit details or sensitive input. No response-time
 guarantee is currently provided.
 
-The parsers enforce nesting and alias-expansion limits, and the interpreter limits
+The parsers enforce nesting and alias-expansion limits, and the VM limits
 execution steps. These limits are not a memory or time sandbox. Applications
 processing untrusted documents or queries should impose their own resource limits.

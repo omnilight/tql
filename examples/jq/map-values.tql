@@ -1,0 +1,2 @@
+# jq: .settings | map_values(. + 1)
+settings.* += 1

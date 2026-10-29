@@ -309,7 +309,7 @@ func TestCompileAndConcurrentReuse(t *testing.T) {
 	}
 	var wg sync.WaitGroup
 	errs := make(chan error, 16)
-	for i := 0; i < 16; i++ {
+	for range 16 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -394,7 +394,7 @@ func TestValidButWrongBackendOutputRollsBack(t *testing.T) {
 	}
 }
 
-func (f invalidOutputFormat) Replace(source []byte, root, target *syntax.Node, value any) ([]syntax.Edit, error) {
+func (f invalidOutputFormat) Replace(source []byte, _ *syntax.Node, target *syntax.Node, value any) ([]syntax.Edit, error) {
 	if f.invalidEdits {
 		return []syntax.Edit{{Start: len(source) + 1, End: len(source) + 2}}, nil
 	}

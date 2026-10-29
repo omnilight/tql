@@ -3,59 +3,30 @@ package query
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/vasileknik76/tql/internal/scan"
 	"github.com/vasileknik76/tql/syntax"
 )
 
-func (f Call) Eval(c, r *syntax.Node, vars ...Variables) ([]*syntax.Node, error) {
-	if f.Name == "walk" || f.Name == "path" || f.Name == "key" {
-		return f.treeEval(c, r, vars...)
-	}
-	if f.Name == "select" {
-		if len(f.Args) != 1 {
-			return nil, fmt.Errorf("select expects one predicate")
-		}
-		v, err := One(f.Args[0], c, r, vars...)
-		if err != nil {
-			return nil, err
-		}
-		if Truth(v) {
-			return []*syntax.Node{c}, nil
-		}
-		return nil, nil
-	}
-	var v any
-	var err error
-	// Zero-argument aggregate functions operate on current input; one argument is explicit input.
-	switch f.Name {
+// ApplyBuiltin applies a non-tree built-in to already evaluated argument nodes.
+func ApplyBuiltin(name string, ctx *syntax.Node, args []*syntax.Node) ([]*syntax.Node, error) {
+	switch name {
 	case "length", "keys", "values", "type", "sort", "reverse", "first", "last":
-		if len(f.Args) > 1 {
-			return nil, fmt.Errorf("%s expects zero or one argument", f.Name)
+		if len(args) > 1 {
+			return nil, fmt.Errorf("%s expects zero or one argument", name)
 		}
-		input := c
-		if len(f.Args) == 1 {
-			nodes, evalErr := f.Args[0].Eval(c, r, vars...)
-			if evalErr != nil {
-				return nil, evalErr
-			}
-			if len(nodes) > 1 {
-				return nil, fmt.Errorf("expression produced %d values; expected one", len(nodes))
-			}
-			input = Node(nil)
-			if len(nodes) == 1 {
-				input = nodes[0]
-			}
+		input := ctx
+		if len(args) == 1 {
+			input = args[0]
 		}
-		// Inspect tree metadata directly: type()/length() are frequent in tree
-		// walks and converting every subtree to Interface would be quadratic.
-		if f.Name == "type" {
+		if name == "type" {
 			return []*syntax.Node{Node(string(input.Kind))}, nil
 		}
-		if f.Name == "length" {
+		if name == "length" {
 			length := 0
 			switch input.Kind {
 			case syntax.Object:
@@ -63,21 +34,21 @@ func (f Call) Eval(c, r *syntax.Node, vars ...Variables) ([]*syntax.Node, error)
 			case syntax.Array:
 				length = len(input.Items)
 			case syntax.String:
-				length = utf8.RuneCountInString(input.Value.(string))
+				length = scan.RuneCount(input.Value.(string))
 			case syntax.Null:
 			default:
 				return nil, fmt.Errorf("length requires string, array or object")
 			}
 			return []*syntax.Node{Node(syntax.Number(strconv.Itoa(length)))}, nil
 		}
-		v = input.Interface()
+		v := input.Interface()
 		var out any
-		switch f.Name {
+		switch name {
 		case "keys":
 			a := []any{}
 			switch x := v.(type) {
 			case map[string]any:
-				keys := []string{}
+				keys := make([]string, 0, len(x))
 				for k := range x {
 					keys = append(keys, k)
 				}
@@ -98,23 +69,23 @@ func (f Call) Eval(c, r *syntax.Node, vars ...Variables) ([]*syntax.Node, error)
 			if !ok {
 				return nil, fmt.Errorf("values requires object")
 			}
-			ks := []string{}
+			keys := make([]string, 0, len(x))
 			for k := range x {
-				ks = append(ks, k)
+				keys = append(keys, k)
 			}
-			sort.Strings(ks)
+			sort.Strings(keys)
 			a := []any{}
-			for _, k := range ks {
+			for _, k := range keys {
 				a = append(a, x[k])
 			}
 			out = a
 		default:
 			x, ok := v.([]any)
 			if !ok {
-				return nil, fmt.Errorf("%s requires array", f.Name)
+				return nil, fmt.Errorf("%s requires array", name)
 			}
 			a := append([]any{}, x...)
-			switch f.Name {
+			switch name {
 			case "first":
 				if len(a) == 0 {
 					return nil, nil
@@ -132,15 +103,15 @@ func (f Call) Eval(c, r *syntax.Node, vars ...Variables) ([]*syntax.Node, error)
 				out = a
 			case "sort":
 				for _, item := range a {
-					if _, e := compare(item, item); e != nil {
-						return nil, e
+					if _, err := compare(item, item); err != nil {
+						return nil, err
 					}
 				}
 				var sortErr error
 				sort.SliceStable(a, func(i, j int) bool {
-					cmp, e := compare(a[i], a[j])
-					if e != nil {
-						sortErr = e
+					cmp, err := compare(a[i], a[j])
+					if err != nil {
+						sortErr = err
 					}
 					return cmp < 0
 				})
@@ -152,24 +123,18 @@ func (f Call) Eval(c, r *syntax.Node, vars ...Variables) ([]*syntax.Node, error)
 		}
 		return []*syntax.Node{Node(out)}, nil
 	case "has", "contains", "startswith", "endswith", "test":
-		if len(f.Args) != 1 && len(f.Args) != 2 {
-			return nil, fmt.Errorf("%s expects one argument (or input, argument)", f.Name)
+		if len(args) != 1 && len(args) != 2 {
+			return nil, fmt.Errorf("%s expects one argument (or input, argument)", name)
 		}
-		input := c.Interface()
+		input := ctx.Interface()
 		argIndex := 0
-		if len(f.Args) == 2 {
-			input, err = One(f.Args[0], c, r, vars...)
-			if err != nil {
-				return nil, err
-			}
+		if len(args) == 2 {
+			input = args[0].Interface()
 			argIndex = 1
 		}
-		arg, err := One(f.Args[argIndex], c, r, vars...)
-		if err != nil {
-			return nil, err
-		}
+		arg := args[argIndex].Interface()
 		var result bool
-		switch f.Name {
+		switch name {
 		case "has":
 			switch x := input.(type) {
 			case map[string]any:
@@ -183,8 +148,8 @@ func (f Call) Eval(c, r *syntax.Node, vars ...Variables) ([]*syntax.Node, error)
 				if !ok {
 					return nil, fmt.Errorf("has expects integer index")
 				}
-				i, er := strconv.Atoi(string(k))
-				if er != nil {
+				i, err := strconv.Atoi(string(k))
+				if err != nil {
 					return nil, fmt.Errorf("has expects integer index")
 				}
 				result = i >= 0 && i < len(x)
@@ -213,23 +178,117 @@ func (f Call) Eval(c, r *syntax.Node, vars ...Variables) ([]*syntax.Node, error)
 			x, ok := input.(string)
 			y, ok2 := arg.(string)
 			if !ok || !ok2 {
-				return nil, fmt.Errorf("%s requires strings", f.Name)
+				return nil, fmt.Errorf("%s requires strings", name)
 			}
-			switch f.Name {
+			switch name {
 			case "startswith":
 				result = strings.HasPrefix(x, y)
 			case "endswith":
 				result = strings.HasSuffix(x, y)
 			case "test":
-				re, er := regexp.Compile(y)
-				if er != nil {
-					return nil, er
+				re, err := regexp.Compile(y)
+				if err != nil {
+					return nil, err
 				}
 				result = re.MatchString(x)
 			}
 		}
 		return []*syntax.Node{Node(result)}, nil
+	case "select":
+		return nil, fmt.Errorf("select expects one predicate")
 	default:
-		return nil, fmt.Errorf("unknown function %q", f.Name)
+		return nil, fmt.Errorf("unknown function %q", name)
 	}
+}
+
+// ApplyTreeFunction applies walk, path or key to an already evaluated argument
+// stream. hasArg distinguishes walk() from walk(empty-expression).
+func ApplyTreeFunction(name string, ctx, root *syntax.Node, arg []*syntax.Node, hasArg bool) ([]*syntax.Node, error) {
+	ns := []*syntax.Node{ctx}
+	if hasArg {
+		ns = arg
+	}
+	var out []*syntax.Node
+	for _, n := range ns {
+		if name == "walk" {
+			type frame struct {
+				n       *syntax.Node
+				visited bool
+			}
+			stack := []frame{{n: n}}
+			for len(stack) > 0 {
+				top := stack[len(stack)-1]
+				stack = stack[:len(stack)-1]
+				if top.visited {
+					out = append(out, top.n)
+					continue
+				}
+				stack = append(stack, frame{n: top.n, visited: true})
+				for _, v := range slices.Backward(top.n.Items) {
+					stack = append(stack, frame{n: v})
+				}
+				for _, v := range slices.Backward(top.n.Entries) {
+					stack = append(stack, frame{n: v.Value})
+				}
+			}
+			continue
+		}
+		path := []any{}
+		node := n
+		for node != root {
+			parent := node.Parent
+			if parent == nil {
+				return nil, fmt.Errorf("%s requires a node in the document", name)
+			}
+			if parent.Kind == syntax.Object {
+				entry := parent.Entry(node)
+				if entry == nil {
+					return nil, fmt.Errorf("%s: node is detached from its parent", name)
+				}
+				path = append(path, entry.Key)
+			} else {
+				i := parent.Index(node)
+				if i < 0 {
+					return nil, fmt.Errorf("%s: node is detached from its parent", name)
+				}
+				path = append(path, syntax.Number(strconv.Itoa(i)))
+			}
+			node = parent
+		}
+		if name == "key" {
+			var key any
+			if len(path) > 0 {
+				key = path[0]
+			}
+			out = append(out, Node(key))
+		} else {
+			for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+				path[i], path[j] = path[j], path[i]
+			}
+			out = append(out, Node(path))
+		}
+	}
+	return out, nil
+}
+
+// UnaryValue applies a unary operator to one evaluated value.
+func UnaryValue(op string, v any) (any, error) {
+	if op == "not" || op == "!" {
+		return !Truth(v), nil
+	}
+	n, ok := v.(syntax.Number)
+	if !ok {
+		return nil, fmt.Errorf("unary %s requires number", op)
+	}
+	if !finiteNumber.MatchString(string(n)) {
+		return nil, fmt.Errorf("cannot calculate with non-finite number %q", n)
+	}
+	if op == "-" {
+		if after, found := strings.CutPrefix(string(n), "-"); found {
+			n = syntax.Number(after)
+		} else {
+			n = syntax.Number("-" + string(n))
+		}
+	}
+	return n, nil
 }

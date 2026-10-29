@@ -427,9 +427,9 @@ func (f *flow) collection() (*syntax.Node, error) {
 		return nil, errAt(f.pos, "nesting limit exceeded")
 	}
 	start, open := f.pos, f.p.src[f.pos]
-	close, kind := byte(']'), syntax.Array
+	closing, kind := byte(']'), syntax.Array
 	if open == '{' {
-		close, kind = '}', syntax.Object
+		closing, kind = '}', syntax.Object
 	}
 	n := &syntax.Node{Kind: kind, Start: start, Style: "flow"}
 	f.pos++
@@ -440,7 +440,7 @@ func (f *flow) collection() (*syntax.Node, error) {
 		if f.pos >= f.limit {
 			return nil, errAt(start, "unterminated flow collection")
 		}
-		if f.p.src[f.pos] == close {
+		if f.p.src[f.pos] == closing {
 			f.pos++
 			n.End = f.pos
 			return n, nil
@@ -455,7 +455,7 @@ func (f *flow) collection() (*syntax.Node, error) {
 		}
 		var key *syntax.Node
 		var err error
-		if f.pos < f.limit && (f.p.src[f.pos] == ':' && (f.pos+1 == f.limit || strings.ContainsRune(" \t\r\n,[]{}", rune(f.p.src[f.pos+1]))) || explicit && (f.p.src[f.pos] == ',' || f.p.src[f.pos] == close)) {
+		if f.pos < f.limit && (f.p.src[f.pos] == ':' && (f.pos+1 == f.limit || strings.ContainsRune(" \t\r\n,[]{}", rune(f.p.src[f.pos+1]))) || explicit && (f.p.src[f.pos] == ',' || f.p.src[f.pos] == closing)) {
 			key = emptyScalar(f.pos)
 		} else {
 			key, err = f.node(true)
@@ -477,7 +477,7 @@ func (f *flow) collection() (*syntax.Node, error) {
 					return nil, errAt(elemStart, "nesting limit exceeded")
 				}
 			}
-			entry, err := f.mappingEntry(key, elemStart, close)
+			entry, err := f.mappingEntry(key, elemStart, closing)
 			if kind == syntax.Array {
 				f.depth--
 			}
@@ -501,7 +501,7 @@ func (f *flow) collection() (*syntax.Node, error) {
 		if f.pos >= f.limit {
 			return nil, errAt(start, "unterminated flow collection")
 		}
-		if f.p.src[f.pos] == close {
+		if f.p.src[f.pos] == closing {
 			continue
 		}
 		if f.p.src[f.pos] != ',' {
@@ -513,9 +513,9 @@ func (f *flow) collection() (*syntax.Node, error) {
 func (f *flow) explicitKey() bool {
 	return f.pos < f.limit && f.p.src[f.pos] == '?' && (f.pos+1 == f.limit || strings.ContainsRune(" \t\r\n", rune(f.p.src[f.pos+1])))
 }
-func (f *flow) mappingEntry(key *syntax.Node, start int, close byte) (*syntax.Entry, error) {
+func (f *flow) mappingEntry(key *syntax.Node, start int, closing byte) (*syntax.Entry, error) {
 	hasColon := f.pos < f.limit && f.p.src[f.pos] == ':'
-	if !hasColon && (f.pos >= f.limit || f.p.src[f.pos] != ',' && f.p.src[f.pos] != close) {
+	if !hasColon && (f.pos >= f.limit || f.p.src[f.pos] != ',' && f.p.src[f.pos] != closing) {
 		return nil, errAt(f.pos, "expected ':'")
 	}
 	var value *syntax.Node
@@ -524,7 +524,7 @@ func (f *flow) mappingEntry(key *syntax.Node, start int, close byte) (*syntax.En
 		if err := f.ws(); err != nil {
 			return nil, err
 		}
-		if f.pos < f.limit && (f.p.src[f.pos] == ',' || f.p.src[f.pos] == close) {
+		if f.pos < f.limit && (f.p.src[f.pos] == ',' || f.p.src[f.pos] == closing) {
 			value = emptyScalar(f.pos)
 		} else {
 			var err error

@@ -4,6 +4,28 @@ TQL optimizes local edits while preserving the original source. Every successful
 edit batch is still reparsed and checked against the expected value tree; timings
 include that work unless a benchmark explicitly measures a lower-level operation.
 
+## Bytecode execution
+
+`Compile` produces bytecode and `Document.Execute` runs it on a register VM. The
+VM removes per-expression interface dispatch and resolves lexical variables to
+slots; parsing, format editing, reparsing and semantic verification are unchanged.
+
+When the VM replaced the AST interpreter on an Apple M3 Pro, macOS arm64,
+Go 1.27.1, reads improved substantially while edit-heavy work stayed neutral:
+
+- compiled reads were about 91% faster, with 4 allocations per execution;
+- filter/project pipelines were about 70% faster;
+- read-only and nested loops were about 76–79% faster;
+- `walk` updates were about 23% faster;
+- mutation loops and one-shot edits were neutral because document parsing,
+  editing, reparsing and verification dominate;
+- a read-only OpenAPI 3.0→3.1 schema check was about 47% faster, while applying
+  the same migration was neutral because the edit engine dominates.
+
+Exact workloads, commands, machine noise and SIMD results are in
+[bytecode performance](bytecode-performance.md). `length(string)` has a SIMD
+rune-count fast path on Go 1.27+ with a scalar fallback.
+
 ## Edit batching
 
 A statement such as `services[].port += 1` plans independent replacements against a

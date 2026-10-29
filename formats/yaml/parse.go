@@ -782,7 +782,8 @@ func (p *parser) value(start, end, indent int) (*syntax.Node, error) {
 	}
 	if n.Style == "plain" {
 		segments := []segment{{n.Start, n.End}}
-		value := string(p.src[n.Start:n.End])
+		var value strings.Builder
+		value.WriteString(string(p.src[n.Start:n.End]))
 		continued := false
 		for {
 			// An inline comment ends a plain scalar; later indented text cannot
@@ -830,21 +831,22 @@ func (p *parser) value(start, end, indent int) (*syntax.Node, error) {
 				break
 			}
 			if blanks == 0 {
-				value += " "
+				value.WriteString(" ")
 			} else {
-				value += strings.Repeat("\n", blanks)
+				value.WriteString(strings.Repeat("\n", blanks))
 			}
-			value += string(p.src[a:b])
+			value.WriteString(string(p.src[a:b]))
 			segments = append(segments, segment{a, b})
 			n.End = b
 			p.i = j + 1
 			continued = true
 		}
 		if continued {
+			text := value.String()
 			n.Kind = syntax.String
-			n.Value = value
+			n.Value = text
 			n.Meta = meta(n.Meta)
-			n.Meta["scalarValue"] = value
+			n.Meta["scalarValue"] = text
 			n.Style = "multiline-plain"
 			n.Meta = meta(n.Meta)
 			n.Meta["segments"] = segments

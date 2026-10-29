@@ -1,0 +1,12 @@
+# jq: paths as $p | select($p[-1] == "name") | {path: $p, value: getpath($p)}
+# TQL has no getpath; walk nodes and read the selected key directly.
+let $target = "name";
+for $node in walk(.) {
+    if type($node) == "object" {
+        for $key in keys($node)[] {
+            if $key == $target {
+                {path: path($node) + [$key], value: $node[$key]};
+            }
+        }
+    }
+}

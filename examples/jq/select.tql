@@ -1,0 +1,2 @@
+# jq: .users[] | select(.age > 30) | {name, age}
+users[] | select(.age > 30) | {name: .name, age: .age}

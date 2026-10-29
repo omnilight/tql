@@ -239,5 +239,5 @@ See [input parameters](scripts.md#input-parameters) for binding rules.
 
 Consecutive simple statements require semicolons; they may be omitted before `}`
 or at the end of the program. Expression nesting is limited to 256 levels, block
-nesting to 128 levels, and execution to 100,000 interpreter steps. User-defined
+nesting to 128 levels, and execution to 100,000 VM steps. User-defined
 functions and full jq compatibility are not part of the language.

@@ -136,6 +136,42 @@ Check the compilation error, then call `doc.Execute(program)`. Each execution ha
 its own variable environment. An error in any iteration rolls back the whole
 execution. See [scripting semantics](scripts.md).
 
+## Bytecode images and assembly
+
+A compiled program can be saved and loaded without its source:
+
+```go
+program, err := tql.Compile(`services[].port += 1`)
+if err != nil {
+    return err
+}
+image, err := program.MarshalBinary()
+if err != nil {
+    return err
+}
+loaded, err := tql.LoadProgram(image)
+if err != nil {
+    return err
+}
+result, err := doc.Execute(loaded)
+```
+
+`MarshalBinary` is deterministic and versioned. `LoadProgram` validates the
+image and rejects corrupt, truncated, unknown-version or structurally invalid
+input. A loaded `Program` is immutable and safe to reuse concurrently; parameters
+declared in the source remain available through `tql.WithParams`.
+
+`Disassemble` returns canonical text that `Assemble` accepts:
+
+```go
+text := program.Disassemble()
+same, err := tql.Assemble(text)
+```
+
+Assembly is intended for debugging, review and reproducible tooling, not as a
+faster source format. The binary image and the assembly text are versioned
+together; use a matching TQL build.
+
 ## Input parameters
 
 Declare inputs in the script and pass their values per execution:

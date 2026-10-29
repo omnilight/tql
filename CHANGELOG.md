@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Execute compiled TQL programs on a register bytecode VM, with lexical slots,
+  materialized stream/scalar operands and the existing transactional edit engine.
+- Add versioned bytecode images with `Program.MarshalBinary` and
+  `tql.LoadProgram`, including bounded decoding, structural validation and fuzz
+  coverage.
+- Add canonical disassembly and assembly through `Program.Disassemble`,
+  `tql.Assemble`, `--disassemble`, `--assemble`, `--program` and
+  `--emit-bytecode`.
+- Reject bytecode whose control-flow cycles contain no `TICK`, fix `select`
+  sub-code validation, and reject path indexes and strings that cannot be
+  represented without changing behavior. `Compile`, `Assemble` and
+  `LoadProgram` now apply the same limits.
+- Preserve exact source bytes, errors, limits, scopes, live references and
+  parameter behavior; expression-heavy workloads are faster and edit-dominated
+  workloads remain neutral. See `docs/bytecode-performance.md`.
+- Remove the AST interpreter after the VM became the only execution engine;
+  `internal/query` now parses scripts and builds compiler input only.
+- Add a SIMD rune-count fast path for `length(string)` on Go 1.27+ with
+  `GOEXPERIMENT=simd`, retaining scalar and `purego` fallbacks.
+- Reduce VM overhead with scalar truth predicates, specialized key/literal
+  filters, primitive equality fast paths, single-node path fast paths, integer
+  arithmetic before exact rational arithmetic, read-only loop bindings, direct
+  scalar reads and pooled execution frames.
+
 ## v0.4.0
 
 - Add reusable script parameters with `param`, defaults, and read-only values,

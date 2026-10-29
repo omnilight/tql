@@ -2,6 +2,7 @@ package json
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 
 	"github.com/vasileknik76/tql/syntax"
@@ -106,8 +107,7 @@ func surroundingStyle(source []byte, n *syntax.Node) insertionStyle {
 		chain = append(chain, p)
 	}
 	s := defaultInsertionStyle()
-	for i := len(chain) - 1; i >= 0; i-- {
-		node := chain[i]
+	for _, node := range slices.Backward(chain) {
 		if len(node.Entries) == 0 && len(node.Items) == 0 {
 			if sibling := neighboringContainer(node); sibling != nil {
 				s = containerStyle(source, sibling, s)
@@ -164,15 +164,15 @@ func siblingTemplate(parent *syntax.Node, kind syntax.Kind) *syntax.Node {
 		return nil
 	}
 	if parent.Kind == syntax.Object {
-		for i := len(parent.Entries) - 1; i >= 0; i-- {
-			if n := parent.Entries[i].Value; n.Kind == kind && n.End-n.Start > 2 {
+		for _, v := range slices.Backward(parent.Entries) {
+			if n := v.Value; n.Kind == kind && n.End-n.Start > 2 {
 				return n
 			}
 		}
 	} else {
-		for i := len(parent.Items) - 1; i >= 0; i-- {
-			if n := parent.Items[i]; n.Kind == kind && n.End-n.Start > 2 {
-				return n
+		for _, item := range slices.Backward(parent.Items) {
+			if item.Kind == kind && item.End-item.Start > 2 {
+				return item
 			}
 		}
 	}
@@ -187,15 +187,15 @@ func styledValue(compact []byte, value *syntax.Node, source []byte, template *sy
 	if template != nil {
 		s = containerStyle(source, template, s)
 	}
-	open, close := byte('['), byte(']')
+	open, closing := byte('['), byte(']')
 	count := len(value.Items)
 	if value.Kind == syntax.Object {
-		open, close, count = '{', '}', len(value.Entries)
+		open, closing, count = '{', '}', len(value.Entries)
 	}
 	// Empty newly introduced containers stay compact: they have no entries whose
 	// layout needs to be expressed yet.
 	if count == 0 {
-		return []byte{open, close}
+		return []byte{open, closing}
 	}
 	var b bytes.Buffer
 	b.WriteByte(open)
@@ -236,6 +236,6 @@ func styledValue(compact []byte, value *syntax.Node, source []byte, template *sy
 	} else {
 		b.WriteString(s.close)
 	}
-	b.WriteByte(close)
+	b.WriteByte(closing)
 	return b.Bytes()
 }

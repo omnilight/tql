@@ -11,7 +11,7 @@ import (
 )
 
 // Replace plans replacement of a selected value.
-func (f Format) Replace(src []byte, root, target *syntax.Node, value any) (result []syntax.Edit, resultErr error) {
+func (f Format) Replace(src []byte, _ *syntax.Node, target *syntax.Node, value any) (result []syntax.Edit, resultErr error) {
 	defer func() {
 		if resultErr == nil {
 			result = tagEdits(src, target, value, result)
@@ -296,7 +296,7 @@ func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, er
 			}
 			edits = append(edits, syntax.Edit{Start: c, End: c + 1})
 		} else if idx > 0 {
-			prevEnd := 0
+			var prevEnd int
 			if parent.Kind == syntax.Object {
 				prevEnd = parent.Entries[idx-1].End
 			} else {
@@ -360,13 +360,12 @@ func (f Format) Delete(src []byte, root, target *syntax.Node) ([]syntax.Edit, er
 	if parent.Kind == syntax.Object {
 		headerEnd = parent.Entry(target).Meta["headerEnd"].(int)
 	} else {
-		for headerEnd = lineStart; headerEnd < len(src) && src[headerEnd] != '\n' && src[headerEnd] != '\r'; headerEnd++ {
+		headerEnd = lineStart
+		for headerEnd < len(src) && src[headerEnd] != '\n' && src[headerEnd] != '\r' {
+			headerEnd++
 		}
 	}
-	scan := target.End
-	if scan > headerEnd {
-		scan = headerEnd
-	}
+	scan := min(target.End, headerEnd)
 	for i := scan; i < headerEnd; i++ {
 		if src[i] == '#' {
 			comment = i

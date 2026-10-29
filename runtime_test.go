@@ -103,11 +103,11 @@ func TestScriptCompiledReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 12; i++ {
+	for range 12 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for j := 0; j < 3; j++ {
+			for range 3 {
 				doc, e := tql.Parse([]byte(`{"items":[1,2,3]}`), "json")
 				if e != nil {
 					t.Error(e)

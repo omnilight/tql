@@ -2,6 +2,7 @@ package edit
 
 import (
 	"fmt"
+	"maps"
 
 	"github.com/vasileknik76/tql"
 	"github.com/vasileknik76/tql/internal/editmodel"
@@ -116,9 +117,7 @@ func merge(base, overlay any, mode ArrayMode, replace *replacement) any {
 	case map[string]any:
 		if prev, ok := base.(map[string]any); ok {
 			out := make(map[string]any, len(prev)+len(next))
-			for k, v := range prev {
-				out[k] = v
-			}
+			maps.Copy(out, prev)
 			for k, v := range next {
 				var child *replacement
 				if replace != nil {
